@@ -13,7 +13,7 @@ pub struct TreasuryPool {
     // Reward-per-share tracking
     pub reward_per_share: u128,            // Accumulator for rewards (scaled by PRECISION)
     pub total_deposited: u64,              // Total SOL deposited by all backers (lamports)
-    pub liquid_balance: u64,                // Available balance for withdrawals (lamports)
+    pub liquid_balance: u64,                // Available balance for deployments and withdrawals (lamports)
     
     // Pool balances
     pub reward_pool_balance: u64,           // Total rewards available (from fees)
@@ -158,6 +158,7 @@ impl TreasuryPool {
             .ok_or_else(|| ErrorCode::CalculationOverflow)?;
         Ok(())
     }
+
 
     /// Credit platform pool (add fees)
     pub fn credit_platform_pool(&mut self, amount: u128) -> Result<()> {

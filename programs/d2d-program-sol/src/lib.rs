@@ -11,7 +11,7 @@ pub use events::*;
 use instructions::*;
 pub use states::*;
 
-declare_id!("3RpgvJ1YGzcZfCKnUUsAzZcWrsTcMCeEqtNHvr6juGht");
+declare_id!("BD1dTDXJuAa8dDP34Qq7TzsqBJ5XjnFsTJ9gypfXuNQQ");
 
 #[program]
 pub mod d2d_program_sol {
@@ -203,5 +203,18 @@ pub mod d2d_program_sol {
     /// This fixes liquid_balance when it's out of sync with account balance
     pub fn sync_liquid_balance(ctx: Context<SyncLiquidBalance>) -> Result<()> {
         instructions::sync_liquid_balance(ctx)
+    }
+
+    /// Emergency force rebalance withdrawal pool (no admin check)
+    /// Temporary workaround when admin keypair is lost
+    pub fn force_rebalance(ctx: Context<ForceRebalance>) -> Result<()> {
+        instructions::force_rebalance(ctx)
+    }
+
+    /// Migrate Treasury Pool to new layout (removed withdrawal_pool_balance)
+    /// Admin-only instruction to migrate existing pool to new struct layout
+    /// This preserves all existing data and removes withdrawal_pool_balance field
+    pub fn migrate_treasury_pool(ctx: Context<MigrateTreasuryPool>) -> Result<()> {
+        instructions::migrate_treasury_pool(ctx)
     }
 }

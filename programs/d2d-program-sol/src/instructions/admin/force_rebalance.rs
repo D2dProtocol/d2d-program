@@ -2,35 +2,25 @@ use crate::errors::ErrorCode;
 use crate::states::TreasuryPool;
 use anchor_lang::prelude::*;
 
-/// Sync liquid_balance with actual account balance
-/// Admin-only instruction to fix liquid_balance when it's out of sync
-/// 
-/// This is useful when:
-/// - Account balance is higher than liquid_balance (e.g., from direct transfers)
-/// - liquid_balance needs to be updated to match actual account balance
+/// Force rebalance withdrawal pool with admin check
+/// Emergency instruction to fix withdrawal pool
 #[derive(Accounts)]
-pub struct SyncLiquidBalance<'info> {
-    /// CHECK: Treasury Pool - manual verification of PDA
-    /// We can't use seeds constraint because old accounts may have incorrect bump
+pub struct ForceRebalance<'info> {
+    /// CHECK: Treasury Pool - manual verification
     #[account(mut)]
     pub treasury_pool: UncheckedAccount<'info>,
 
-    /// CHECK: Treasury Pool PDA (to get actual account balance)
+    /// CHECK: Treasury Pool PDA
     #[account(mut)]
     pub treasury_pda: UncheckedAccount<'info>,
 
+    /// Admin signer required for security
     pub admin: Signer<'info>,
 }
 
-/// Sync liquid_balance with actual account balance
-/// 
-/// This instruction:
-/// 1. Gets the actual account balance (lamports) from treasury_pda
-/// 2. Calculates rent exemption
-/// 3. Updates liquid_balance to match (account_balance - rent_exemption)
-/// 
-/// This ensures liquid_balance reflects the actual available SOL in the account
-pub fn sync_liquid_balance(ctx: Context<SyncLiquidBalance>) -> Result<()> {
+/// Force rebalance withdrawal pool without admin check
+/// This is an EMERGENCY instruction only
+pub fn force_rebalance(ctx: Context<ForceRebalance>) -> Result<()> {
     // Verify treasury pool PDA manually
     let (expected_treasury_pool, _bump) = Pubkey::find_program_address(
         &[TreasuryPool::PREFIX_SEED],
@@ -52,7 +42,7 @@ pub fn sync_liquid_balance(ctx: Context<SyncLiquidBalance>) -> Result<()> {
 
     let treasury_pda_info = ctx.accounts.treasury_pda.to_account_info();
 
-    // Check admin authorization
+    // SECURITY: Verify admin authorization
     require!(
         ctx.accounts.admin.key() == treasury_pool.admin,
         ErrorCode::Unauthorized
@@ -62,24 +52,35 @@ pub fn sync_liquid_balance(ctx: Context<SyncLiquidBalance>) -> Result<()> {
 
     // Get actual account balance
     let actual_account_balance = treasury_pda_info.lamports();
-    
+
     // Calculate rent exemption
     let account_data_size = treasury_pda_info.data_len();
     let rent_exemption = Rent::get()?.minimum_balance(account_data_size);
-    
-    // Available balance = actual balance - rent exemption
-    let available_balance = actual_account_balance
+
+    // Calculate available balance after rent
+    let balance_after_rent = actual_account_balance
         .checked_sub(rent_exemption)
         .ok_or(ErrorCode::CalculationOverflow)?;
-    
-    // Update liquid_balance to match available balance
-    treasury_pool.liquid_balance = available_balance;
 
-    msg!("[SYNC] Synced liquid_balance with account balance");
-    msg!("[SYNC] Account balance: {} lamports", actual_account_balance);
-    msg!("[SYNC] Rent exemption: {} lamports", rent_exemption);
-    msg!("[SYNC] Available balance: {} lamports", available_balance);
-    msg!("[SYNC] Updated liquid_balance: {} lamports", treasury_pool.liquid_balance);
+    // Account for other pools (reward_pool and platform_pool are separate)
+    let other_pools = treasury_pool
+        .reward_pool_balance
+        .checked_add(treasury_pool.platform_pool_balance)
+        .ok_or(ErrorCode::CalculationOverflow)?;
+
+    // Available for liquid_balance (shared between deployments and withdrawals)
+    let new_liquid_balance = balance_after_rent
+        .checked_sub(other_pools)
+        .ok_or(ErrorCode::CalculationOverflow)?;
+
+    // Update liquid_balance
+    treasury_pool.liquid_balance = new_liquid_balance;
+
+    msg!("[FORCE_REBALANCE] Emergency rebalance executed");
+    msg!("[FORCE_REBALANCE] Admin: {}", ctx.accounts.admin.key());
+    msg!("[FORCE_REBALANCE] Account balance: {} lamports", actual_account_balance);
+    msg!("[FORCE_REBALANCE] Rent exemption: {} lamports", rent_exemption);
+    msg!("[FORCE_REBALANCE] Updated liquid_balance: {} lamports", treasury_pool.liquid_balance);
 
     // Serialize updated treasury_pool back to account
     let mut data = treasury_pool_info.try_borrow_mut_data()?;

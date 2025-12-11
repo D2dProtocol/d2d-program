@@ -4,10 +4,12 @@ use crate::states::TreasuryPool;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-/// Credit fees to pools (admin/backend only)
-/// 
-/// This instruction is called by backend when devs pay fees.
+/// Credit fees to pools (developer pays fees)
+///
+/// This instruction is called when developers pay fees for deployments.
 /// Updates reward_per_share accumulator.
+///
+/// SECURITY: Developer (fee_payer) pays the fees, not admin
 #[derive(Accounts)]
 pub struct CreditFeeToPool<'info> {
     #[account(
@@ -16,7 +18,7 @@ pub struct CreditFeeToPool<'info> {
         bump = treasury_pool.bump
     )]
     pub treasury_pool: Account<'info, TreasuryPool>,
-    
+
     /// CHECK: Reward Pool PDA (receives reward fees)
     #[account(
         mut,
@@ -24,7 +26,7 @@ pub struct CreditFeeToPool<'info> {
         bump = treasury_pool.reward_pool_bump
     )]
     pub reward_pool: UncheckedAccount<'info>,
-    
+
     /// CHECK: Platform Pool PDA (receives platform fees)
     #[account(
         mut,
@@ -32,27 +34,28 @@ pub struct CreditFeeToPool<'info> {
         bump = treasury_pool.platform_pool_bump
     )]
     pub platform_pool: UncheckedAccount<'info>,
-    
+
+    /// Admin signer to authorize the fee credit operation
     #[account(
-        mut,
         constraint = admin.key() == treasury_pool.admin @ ErrorCode::Unauthorized
     )]
     pub admin: Signer<'info>,
-    
+
+    /// SECURITY FIX: Developer/fee payer who pays the fees (not admin)
+    #[account(mut)]
+    pub fee_payer: Signer<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
 /// Credit fees to pools and update reward_per_share
-/// 
-/// Flow:
-/// 1. Developer has already transferred fees to RewardPool and PlatformPool PDAs (off-chain)
-/// 2. Admin calls this instruction to "record" the fees in on-chain state
-/// 3. Transfer fees from admin to pools (if not already transferred)
-/// 4. Call treasury_pool.credit_fee_to_pool() which updates reward_per_share
-/// 
-/// NOTE: This instruction does NOT transfer funds - it only updates accounting state.
-/// The actual funds should already be in the pool PDAs from developer payment.
-/// This updates reward_per_share accumulator for reward distribution.
+///
+/// SECURITY FIX Flow:
+/// 1. Developer (fee_payer) transfers fees to RewardPool and PlatformPool PDAs
+/// 2. Admin authorizes the fee credit operation
+/// 3. Call treasury_pool.credit_fee_to_pool() which updates reward_per_share
+///
+/// IMPORTANT: Developer (fee_payer) pays the fees, NOT admin
 pub fn credit_fee_to_pool(
     ctx: Context<CreditFeeToPool>,
     fee_reward: u64,
@@ -63,35 +66,35 @@ pub fn credit_fee_to_pool(
     require!(!treasury_pool.emergency_pause, ErrorCode::ProgramPaused);
     require!(fee_reward > 0 || fee_platform > 0, ErrorCode::InvalidAmount);
 
-    // Check admin has enough lamports
-    let admin_lamports = ctx.accounts.admin.lamports();
+    // SECURITY FIX: Check fee_payer (developer) has enough lamports, not admin
+    let fee_payer_lamports = ctx.accounts.fee_payer.lamports();
     let total_fees = fee_reward
         .checked_add(fee_platform)
         .ok_or(ErrorCode::CalculationOverflow)?;
-    
+
     require!(
-        admin_lamports >= total_fees,
+        fee_payer_lamports >= total_fees,
         ErrorCode::InsufficientDeposit
     );
 
-    // Transfer reward fee to Reward Pool PDA
+    // SECURITY FIX: Transfer reward fee from fee_payer (developer) to Reward Pool PDA
     if fee_reward > 0 {
         let reward_fee_cpi = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             system_program::Transfer {
-                from: ctx.accounts.admin.to_account_info(),
+                from: ctx.accounts.fee_payer.to_account_info(),
                 to: ctx.accounts.reward_pool.to_account_info(),
             },
         );
         system_program::transfer(reward_fee_cpi, fee_reward)?;
     }
 
-    // Transfer platform fee to Platform Pool PDA
+    // SECURITY FIX: Transfer platform fee from fee_payer (developer) to Platform Pool PDA
     if fee_platform > 0 {
         let platform_fee_cpi = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             system_program::Transfer {
-                from: ctx.accounts.admin.to_account_info(),
+                from: ctx.accounts.fee_payer.to_account_info(),
                 to: ctx.accounts.platform_pool.to_account_info(),
             },
         );

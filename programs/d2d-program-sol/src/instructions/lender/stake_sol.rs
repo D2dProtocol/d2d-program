@@ -16,19 +16,16 @@ use anchor_lang::solana_program::rent::Rent;
 /// 6. Update backer's deposited_amount and reward_debt
 #[derive(Accounts)]
 pub struct StakeSol<'info> {
-    #[account(
-        mut,
-        seeds = [TreasuryPool::PREFIX_SEED],
-        bump = treasury_pool.bump
-    )]
-    pub treasury_pool: Account<'info, TreasuryPool>,
+    /// CHECK: Treasury Pool - will be migrated if needed
+    /// We use UncheckedAccount to handle old layout migration
+    /// Note: We can't use Account constraint because old layout can't deserialize
+    /// We verify the PDA manually in the function
+    #[account(mut)]
+    pub treasury_pool: UncheckedAccount<'info>,
     
     /// CHECK: Treasury Pool PDA (receives 100% of deposit)
-    #[account(
-        mut,
-        seeds = [TreasuryPool::PREFIX_SEED],
-        bump = treasury_pool.bump
-    )]
+    /// Same as treasury_pool, just for lamport transfers
+    #[account(mut)]
     pub treasury_pda: UncheckedAccount<'info>,
     
     /// CHECK: Lender stake account - will be initialized/resized if needed
@@ -54,7 +51,42 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
     msg!("[STAKE] Starting stake_sol instruction");
     msg!("[STAKE] Deposit amount: {} lamports", deposit_amount);
     
-    let treasury_pool = &mut ctx.accounts.treasury_pool;
+    // Verify treasury pool PDA matches
+    let (expected_treasury_pool, _bump) = Pubkey::find_program_address(
+        &[TreasuryPool::PREFIX_SEED],
+        ctx.program_id,
+    );
+    require!(
+        ctx.accounts.treasury_pool.key() == expected_treasury_pool,
+        ErrorCode::InvalidAccountOwner
+    );
+    require!(
+        ctx.accounts.treasury_pda.key() == expected_treasury_pool,
+        ErrorCode::InvalidAccountOwner
+    );
+    
+    // Handle migration if needed
+    let treasury_pool_info = ctx.accounts.treasury_pool.to_account_info();
+    let required_space = 8 + TreasuryPool::INIT_SPACE;
+    let current_space = treasury_pool_info.data_len();
+    
+    // Check if account needs migration (resize)
+    if current_space < required_space {
+        msg!("[STAKE] Account needs resize: {} < {} bytes", current_space, required_space);
+        // Resize account - this will preserve existing data
+        treasury_pool_info.realloc(required_space, false)?;
+    }
+    
+    // Try to deserialize treasury pool
+    // If deserialization fails, it means account has old layout - need admin migration first
+    let mut treasury_pool = TreasuryPool::try_deserialize(&mut &treasury_pool_info.data.borrow()[..])
+        .map_err(|_| {
+            msg!("[STAKE] ERROR: Cannot deserialize TreasuryPool account");
+            msg!("[STAKE] Account size: {} bytes, required: {} bytes", current_space, required_space);
+            msg!("[STAKE] Please call migrate_treasury_pool() instruction first");
+            anchor_lang::error!(crate::errors::ErrorCode::InvalidAccountData)
+        })?;
+    
     let lender_stake = &mut ctx.accounts.lender_stake;
 
     msg!("[STAKE] Treasury Pool loaded - reward_per_share: {}, total_deposited: {}", 
@@ -107,21 +139,29 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
 
     // Initialize backer deposit if first time (init_if_needed handles this)
     let is_new_deposit = lender_stake.backer == Pubkey::default();
-    
+
     if is_new_deposit {
         // Initialize new deposit
         lender_stake.backer = ctx.accounts.lender.key();
         lender_stake.deposited_amount = 0;
         lender_stake.reward_debt = 0;
+        lender_stake.pending_rewards = 0;
         lender_stake.claimed_total = 0;
         lender_stake.is_active = true;
         lender_stake.bump = ctx.bumps.lender_stake;
     } else {
-        require!(lender_stake.is_active, ErrorCode::InactiveStake);
-        
-        // Settle pending rewards before adding new deposit
-        // Update reward_debt to current accumulated value
-        lender_stake.update_reward_debt(treasury_pool.reward_per_share)?;
+        // If account exists but is inactive (e.g., after full unstake), reactivate it
+        // This allows users to stake again after unstaking all their SOL
+        if !lender_stake.is_active {
+            msg!("[STAKE] Reactivating inactive stake account");
+            lender_stake.is_active = true;
+        }
+
+        // CRITICAL: Settle pending rewards before adding new deposit
+        // This preserves rewards that would be lost when reward_debt is recalculated
+        msg!("[STAKE] Settling pending rewards before adding new deposit");
+        lender_stake.settle_pending_rewards(treasury_pool.reward_per_share)?;
+        msg!("[STAKE] Pending rewards after settle: {} lamports", lender_stake.pending_rewards);
     }
 
     // NO FEES TAKEN FROM BACKER - 100% goes to TreasuryPool
@@ -192,7 +232,12 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
 
     // Update reward_debt after deposit
     // This captures the current reward_per_share for the new total deposited_amount
+    // pending_rewards already settled above (if not new deposit), safe to update debt
     lender_stake.update_reward_debt(treasury_pool.reward_per_share)?;
+
+    // Serialize updated treasury_pool back to account
+    let mut data = treasury_pool_info.try_borrow_mut_data()?;
+    treasury_pool.try_serialize(&mut &mut data[..])?;
 
     emit!(SolStaked {
         lender: lender_stake.backer,

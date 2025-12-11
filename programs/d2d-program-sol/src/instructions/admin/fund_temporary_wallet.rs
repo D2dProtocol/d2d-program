@@ -107,8 +107,7 @@ pub fn fund_temporary_wallet(
     }
 
     // Update treasury pool state
-    // IMPORTANT: Deduct from liquid_balance (not total_deposited)
-    // This allows withdrawals to work correctly
+    // IMPORTANT: Deduct from liquid_balance (shared between deployments and withdrawals)
     treasury_pool.liquid_balance = treasury_pool
         .liquid_balance
         .checked_sub(amount)

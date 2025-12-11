@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-d2d_program_sol = "3RpgvJ1YGzcZfCKnUUsAzZcWrsTcMCeEqtNHvr6juGht"
+d2d_program_sol = "BD1dTDXJuAa8dDP34Qq7TzsqBJ5XjnFsTJ9gypfXuNQQ"
 
 [registry]
 url = "https://api.apr.dev"

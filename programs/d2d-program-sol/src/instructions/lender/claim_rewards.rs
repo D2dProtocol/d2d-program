@@ -57,11 +57,15 @@ pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
          lender_stake.deposited_amount, lender_stake.reward_debt);
 
     require!(!treasury_pool.emergency_pause, ErrorCode::ProgramPaused);
-    require!(lender_stake.is_active, ErrorCode::InactiveStake);
 
-    // Calculate claimable rewards using reward-per-share
+    // Allow claim even if inactive, as long as there are rewards to claim
+    // This allows users to claim pending_rewards even after fully unstaking
+
+    // Calculate claimable rewards using reward-per-share (includes pending_rewards)
     let claimable_rewards = lender_stake.calculate_claimable_rewards(treasury_pool.reward_per_share)?;
     msg!("[CLAIM] Calculated claimable rewards: {} lamports", claimable_rewards);
+    msg!("[CLAIM] - From pending_rewards: {} lamports", lender_stake.pending_rewards);
+    msg!("[CLAIM] - From reward_per_share: {} lamports", claimable_rewards - lender_stake.pending_rewards);
     require!(claimable_rewards > 0, ErrorCode::NoRewardsToClaim);
 
     // Verify reward pool has enough balance
@@ -82,7 +86,10 @@ pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         .claimed_total
         .checked_add(claimable_rewards)
         .ok_or(ErrorCode::CalculationOverflow)?;
-    
+
+    // Clear pending_rewards as they've been claimed
+    lender_stake.pending_rewards = 0;
+
     // Update reward_debt to current accumulated value
     lender_stake.update_reward_debt(treasury_pool.reward_per_share)?;
 

@@ -56,10 +56,14 @@ pub enum ErrorCode {
     FeeAmountTooLarge,
     #[msg("Insufficient liquid balance for withdrawal")]
     InsufficientLiquidBalance,
+    #[msg("Invalid account data - account needs migration. Please call migrate_treasury_pool() first")]
+    InvalidAccountData,
     #[msg("Division by zero - total deposits is zero")]
     DivisionByZero,
     #[msg("Invalid withdrawal request")]
     InvalidWithdrawalRequest,
     #[msg("Invalid account owner - account must be owned by this program")]
     InvalidAccountOwner,
+    #[msg("Pool utilization would exceed 80% - cannot unstake this amount")]
+    PoolUtilizationTooHigh,
 }

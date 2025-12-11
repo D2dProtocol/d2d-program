@@ -130,12 +130,13 @@ pub fn confirm_deployment_success(
         );
         system_program::transfer(cpi_context, actual_recovered)?;
 
-        // Update liquid_balance (recovered funds are available for withdrawals)
+        // Update liquid_balance (recovered funds are available for deployments)
         // This is the correct place for recovered deployment funds
         treasury_pool.liquid_balance = treasury_pool
             .liquid_balance
             .checked_add(actual_recovered)
             .ok_or(ErrorCode::CalculationOverflow)?;
+        
         
         // NOTE: Do NOT update platform_pool_balance
         // PlatformPool only receives 0.1% developer fees, not recovered deployment funds
@@ -226,12 +227,13 @@ pub fn confirm_deployment_failure(
             **ephemeral_lamports = 0; // Empty ephemeral key
         }
         
-        // Update liquid_balance (recovered funds available for withdrawals)
+        // Update liquid_balance (recovered funds available for deployments)
         // This is the correct place for recovered deployment funds
         treasury_pool.liquid_balance = treasury_pool
             .liquid_balance
             .checked_add(remaining_funds)
             .ok_or(ErrorCode::CalculationOverflow)?;
+        
         
         // NOTE: Do NOT update platform_pool_balance
         // PlatformPool only receives 0.1% developer fees, not recovered deployment funds
