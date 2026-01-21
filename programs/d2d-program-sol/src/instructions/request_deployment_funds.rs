@@ -47,11 +47,11 @@ pub struct RequestDeploymentFunds<'info> {
     )]
     pub admin: Signer<'info>,
     
-    /// CHECK: Treasury wallet address - validated against treasury_pool (not used for transfers)
+    /// CHECK: Dev wallet address - validated against treasury_pool (not used for transfers)
     #[account(
-        constraint = treasury_wallet.key() == treasury_pool.treasury_wallet @ ErrorCode::InvalidTreasuryWallet
+        constraint = dev_wallet.key() == treasury_pool.dev_wallet @ ErrorCode::InvalidTreasuryWallet
     )]
-    pub treasury_wallet: UncheckedAccount<'info>,
+    pub dev_wallet: UncheckedAccount<'info>,
     
     pub system_program: Program<'info, System>,
 }
@@ -88,7 +88,7 @@ pub fn request_deployment_funds(
 
     // Check if treasury has enough funds for deployment
     require!(
-        deployment_cost <= treasury_pool.total_staked,
+        deployment_cost <= treasury_pool.liquid_balance,
         ErrorCode::InsufficientTreasuryFunds
     );
 
@@ -153,8 +153,8 @@ pub fn request_deployment_funds(
     // Note: Deployment cost will be transferred later via fund_temporary_wallet instruction
     // This separates developer payment from backend deployment funding
 
-    // Update treasury pool - only add developer payment, don't deduct deployment cost yet
-    treasury_pool.distribute_fees(total_payment)?;
+    // Update treasury pool - credit developer payment to reward pool
+    treasury_pool.credit_reward_pool(total_payment as u128)?;
 
     emit!(DeploymentFundsRequested {
         request_id: deploy_request.request_id,

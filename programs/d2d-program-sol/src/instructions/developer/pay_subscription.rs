@@ -19,12 +19,12 @@ pub struct PaySubscription<'info> {
     pub deploy_request: Account<'info, DeployRequest>,
     #[account(mut)]
     pub developer: Signer<'info>,
-    /// CHECK: Treasury wallet address - validated against treasury_pool
+    /// CHECK: Dev wallet address - validated against treasury_pool
     #[account(
         mut,
-        constraint = treasury_wallet.key() == treasury_pool.treasury_wallet @ ErrorCode::InvalidTreasuryWallet
+        constraint = dev_wallet.key() == treasury_pool.dev_wallet @ ErrorCode::InvalidTreasuryWallet
     )]
-    pub treasury_wallet: UncheckedAccount<'info>,
+    pub dev_wallet: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -61,15 +61,15 @@ pub fn pay_subscription(
     // Update status to active
     deploy_request.status = DeployRequestStatus::Active;
 
-    // Update treasury pool
-    treasury_pool.distribute_fees(payment_amount)?;
+    // Update treasury pool - credit payment to reward pool
+    treasury_pool.credit_reward_pool(payment_amount as u128)?;
 
-    // Transfer payment to treasury
+    // Transfer payment to dev wallet
     let cpi_context = CpiContext::new(
         ctx.accounts.system_program.to_account_info(),
         system_program::Transfer {
             from: ctx.accounts.developer.to_account_info(),
-            to: ctx.accounts.treasury_wallet.to_account_info(),
+            to: ctx.accounts.dev_wallet.to_account_info(),
         },
     );
     system_program::transfer(cpi_context, payment_amount)?;

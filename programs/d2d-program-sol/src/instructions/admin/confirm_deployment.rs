@@ -118,7 +118,7 @@ pub fn confirm_deployment_success(
             TreasuryPool::PREFIX_SEED,
             &[treasury_pool.bump],
         ];
-        let signer_seeds = &[&treasury_seeds[..]];
+        let _signer_seeds = &[&treasury_seeds[..]];
         
         // Use CPI System Program transfer from ephemeral_key to treasury_pda
         let cpi_context = CpiContext::new(
@@ -177,14 +177,25 @@ pub fn confirm_deployment_failure(
     );
 
     // Calculate refund amount
-    let total_payment = deploy_request.service_fee
-        .checked_add(deploy_request.monthly_fee)
+    // Developer paid: service_fee + (monthly_fee * initial_months)
+    // Calculate initial_months from subscription_paid_until and created_at
+    let seconds_per_month: i64 = 30 * 24 * 60 * 60;
+    let subscription_duration = deploy_request
+        .subscription_paid_until
+        .saturating_sub(deploy_request.created_at);
+    let initial_months = (subscription_duration / seconds_per_month).max(1) as u64;
+
+    // Calculate total payment that was made (full refund for failed deployment)
+    let monthly_payment = deploy_request.monthly_fee
+        .checked_mul(initial_months)
         .ok_or(ErrorCode::CalculationOverflow)?;
-    let refund_amount = total_payment; // Full refund for failed deployment
+    let refund_amount = deploy_request.service_fee
+        .checked_add(monthly_payment)
+        .ok_or(ErrorCode::CalculationOverflow)?;
 
     // Validate refund amount is reasonable
     require!(
-        refund_amount <= TreasuryPool::MAX_FEE_AMOUNT as u64,
+        refund_amount <= TreasuryPool::MAX_AMOUNT as u64,
         ErrorCode::FeeAmountTooLarge
     );
 

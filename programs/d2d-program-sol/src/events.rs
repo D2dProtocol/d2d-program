@@ -30,17 +30,6 @@ pub struct RewardsClaimed {
 }
 
 #[event]
-pub struct DeployRequested {
-    pub request_id: [u8; 32],
-    pub developer: Pubkey,
-    pub program_hash: [u8; 32],
-    pub service_fee: u64,
-    pub monthly_fee: u64,
-    pub initial_months: u32,
-    pub total_payment: u64,
-}
-
-#[event]
 pub struct DeploymentFundsRequested {
     pub request_id: [u8; 32],
     pub developer: Pubkey,
@@ -59,20 +48,6 @@ pub struct TemporaryWalletFunded {
     pub temporary_wallet: Pubkey,
     pub amount: u64,
     pub funded_at: i64,
-}
-
-#[event]
-pub struct ProgramDeployed {
-    pub request_id: [u8; 32],
-    pub developer: Pubkey,
-    pub program_hash: [u8; 32],
-    pub service_fee: u64,
-    pub monthly_fee: u64,
-    pub initial_months: u32,
-    pub deployment_cost: u64,
-    pub ephemeral_key: Pubkey,
-    pub total_payment: u64,
-    pub deployed_at: i64,
 }
 
 #[event]
@@ -105,27 +80,6 @@ pub struct SubscriptionPaid {
 }
 
 #[event]
-pub struct RewardsDistributed {
-    pub total_fees_collected: u64,
-    pub total_rewards_distributed: u64,
-    pub current_apy: u64,
-    pub distributed_at: i64,
-}
-
-#[event]
-pub struct ApyUpdated {
-    pub old_apy: u64,
-    pub new_apy: u64,
-    pub updated_at: i64,
-}
-
-#[event]
-pub struct ProgramsSuspended {
-    pub suspended_count: u32,
-    pub suspended_at: i64,
-}
-
-#[event]
 pub struct EmergencyPauseToggled {
     pub paused: bool,
     pub toggled_at: i64,
@@ -147,13 +101,6 @@ pub struct AdminWithdrew {
     pub destination: Pubkey,
     pub reason: String,
     pub withdrawn_at: i64,
-}
-
-#[event]
-pub struct AdminMovedToRewardPool {
-    pub admin: Pubkey,
-    pub amount: u64,
-    pub moved_at: i64,
 }
 
 #[event]
@@ -187,9 +134,76 @@ pub struct Claimed {
 }
 
 #[event]
-pub struct WithdrawRequested {
-    pub backer: Pubkey,
+pub struct GuardianSet {
+    pub admin: Pubkey,
+    pub old_guardian: Pubkey,
+    pub new_guardian: Pubkey,
+    pub set_at: i64,
+}
+
+#[event]
+pub struct GuardianPaused {
+    pub guardian: Pubkey,
+    pub paused_at: i64,
+}
+
+#[event]
+pub struct WithdrawalInitiated {
+    pub initiator: Pubkey,
+    pub withdrawal_type: String,
     pub amount: u64,
-    pub request_id: [u8; 32],
-    pub requested_at: i64,
+    pub destination: Pubkey,
+    pub execute_after: i64,
+    pub expires_at: i64,
+    pub reason: String,
+    pub initiated_at: i64,
+}
+
+#[event]
+pub struct WithdrawalExecuted {
+    pub executor: Pubkey,
+    pub withdrawal_type: String,
+    pub amount: u64,
+    pub destination: Pubkey,
+    pub executed_at: i64,
+}
+
+#[event]
+pub struct WithdrawalVetoed {
+    pub guardian: Pubkey,
+    pub withdrawal_type: String,
+    pub amount: u64,
+    pub vetoed_at: i64,
+}
+
+#[event]
+pub struct WithdrawalCancelled {
+    pub admin: Pubkey,
+    pub withdrawal_type: String,
+    pub amount: u64,
+    pub cancelled_at: i64,
+}
+
+#[event]
+pub struct TimelockDurationChanged {
+    pub admin: Pubkey,
+    pub old_duration: i64,
+    pub new_duration: i64,
+    pub changed_at: i64,
+}
+
+#[event]
+pub struct DailyLimitChanged {
+    pub admin: Pubkey,
+    pub old_limit: u64,
+    pub new_limit: u64,
+    pub changed_at: i64,
+}
+
+#[event]
+pub struct EmergencyUnstake {
+    pub lender: Pubkey,
+    pub amount: u64,
+    pub remaining_staked: u64,
+    pub unstaked_at: i64,
 }

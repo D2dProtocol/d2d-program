@@ -63,7 +63,10 @@ pub fn close_program_and_refund(
     system_program::transfer(cpi_context, recovered_lamports)?;
 
     // Update treasury pool balance
-    treasury_pool.total_staked += recovered_lamports;
+    treasury_pool.liquid_balance = treasury_pool
+        .liquid_balance
+        .checked_add(recovered_lamports)
+        .ok_or(ErrorCode::CalculationOverflow)?;
 
     // Mark deploy request as closed
     deploy_request.status = DeployRequestStatus::Closed;

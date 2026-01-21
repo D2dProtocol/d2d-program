@@ -6,26 +6,12 @@ pub enum ErrorCode {
     ProgramPaused,
     #[msg("Insufficient deposit amount")]
     InsufficientDeposit,
-    #[msg("Maximum concurrent sessions exceeded")]
-    MaxConcurrentSessionsExceeded,
-    #[msg("Invalid session status for this operation")]
-    InvalidSessionStatus,
-    #[msg("Maximum retry attempts exceeded")]
-    MaxRetriesExceeded,
-    #[msg("Session has not expired yet")]
-    SessionNotExpired,
     #[msg("Unauthorized access")]
     Unauthorized,
     #[msg("Invalid amount")]
     InvalidAmount,
-    #[msg("Invalid lock period")]
-    InvalidLockPeriod,
-    #[msg("Inactive stake")]
-    InactiveStake,
     #[msg("Insufficient stake amount")]
     InsufficientStake,
-    #[msg("Stake is locked")]
-    StakeLocked,
     #[msg("No rewards to claim")]
     NoRewardsToClaim,
     #[msg("Insufficient treasury funds")]
@@ -42,28 +28,36 @@ pub enum ErrorCode {
     InvalidEphemeralKey,
     #[msg("Calculation overflow")]
     CalculationOverflow,
-    #[msg("Time elapsed too large")]
-    TimeElapsedTooLarge,
-    #[msg("Negative time elapsed - clock error detected")]
-    NegativeTimeElapsed,
     #[msg("Recovered funds exceed deployment cost")]
     InvalidRecoveredFunds,
-    #[msg("Lock period exceeds maximum allowed (10 years)")]
-    LockPeriodTooLong,
-    #[msg("Insufficient principal funds in treasury pool")]
-    InsufficientPrincipalFunds,
     #[msg("Fee amount exceeds maximum allowed")]
     FeeAmountTooLarge,
     #[msg("Insufficient liquid balance for withdrawal")]
     InsufficientLiquidBalance,
     #[msg("Invalid account data - account needs migration. Please call migrate_treasury_pool() first")]
     InvalidAccountData,
-    #[msg("Division by zero - total deposits is zero")]
-    DivisionByZero,
-    #[msg("Invalid withdrawal request")]
-    InvalidWithdrawalRequest,
     #[msg("Invalid account owner - account must be owned by this program")]
     InvalidAccountOwner,
-    #[msg("Pool utilization would exceed 80% - cannot unstake this amount")]
-    PoolUtilizationTooHigh,
+
+    // Security & Timelock errors
+    #[msg("Timelock period has not expired yet")]
+    TimelockNotExpired,
+    #[msg("No pending withdrawal to execute")]
+    NoPendingWithdrawal,
+    #[msg("Pending withdrawal has expired")]
+    PendingWithdrawalExpired,
+    #[msg("A pending withdrawal already exists")]
+    PendingWithdrawalExists,
+    #[msg("Guardian not set")]
+    GuardianNotSet,
+    #[msg("Only guardian can perform this action")]
+    OnlyGuardian,
+    #[msg("Daily withdrawal limit exceeded")]
+    DailyWithdrawalLimitExceeded,
+    #[msg("Invalid timelock duration")]
+    InvalidTimelockDuration,
+    #[msg("Cannot set guardian to zero address")]
+    InvalidGuardianAddress,
+    #[msg("Cannot withdraw protected rewards - only excess rewards can be withdrawn")]
+    CannotWithdrawProtectedRewards,
 }
