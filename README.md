@@ -1,287 +1,453 @@
-# D2D Program Sol - Decentralized Deployment Platform for Solana
+# D2D Protocol - Solana Program
 
-A decentralized deployment platform that enables developers to deploy Solana programs on mainnet at the lowest cost through a staking/lending mechanism. Think Vercel for Solana blockchain.
+A decentralized deployment platform enabling developers to deploy Solana programs on mainnet at minimal cost through a staking/lending treasury model. D2D Protocol connects stakers (lenders), developers, and platform admin in a sustainable on-chain economic system.
 
-## 🎯 Overview
+**Program ID:** `HDxYgZcTu6snVtCEozCUkhwmmUngWEsYuNKJsvgpyL5k`
 
-D2D Program Sol connects three key actors in a sustainable DeFi ecosystem:
+## Architecture Overview
 
-- **Lenders**: Stake SOL to provide liquidity and earn APY rewards from developer fees
-- **Developers**: Deploy programs by paying service fees and monthly subscriptions
-- **Admin**: Manages deployments, confirms success/failure, and ensures system security
+```mermaid
+graph TB
+    subgraph Actors
+        Staker["Staker (Lender)"]
+        Dev["Developer"]
+        Admin["Admin / Guardian"]
+    end
 
-## 🏗️ Architecture
+    subgraph OnChain["D2D Solana Program"]
+        TP["TreasuryPool PDA"]
+        RP["RewardPool PDA"]
+        PP["PlatformPool PDA"]
+        LS["BackerDeposit PDA<br/>(per staker)"]
+        DR["DeployRequest PDA<br/>(per deployment)"]
+        MP["ManagedProgram PDA<br/>(per program)"]
+        DE["DeveloperEscrow PDA<br/>(per developer)"]
+        WQ["WithdrawalQueueEntry PDA<br/>(per queue position)"]
+        PW["PendingWithdrawal PDA<br/>(admin timelock)"]
+    end
 
-### Core State Accounts
+    subgraph ExternalPrograms["Deployed Programs"]
+        P1["Developer Program A"]
+        P2["Developer Program B"]
+    end
 
-#### **TreasuryPool**
-Central pool managing all staked funds and rewards:
-- `total_staked`: Total SOL staked by lenders
-- `current_apy`: Current APY rate (basis points, max 100%)
-- `total_fees_collected`: Total fees from developers
-- `total_rewards_distributed`: Total rewards paid to lenders
-- `treasury_wallet`: Validated treasury wallet address
-- `emergency_pause`: Emergency pause mechanism
+    Staker -->|stake_sol / unstake_sol| TP
+    Staker -->|claim_rewards| RP
+    Staker -->|queue_withdrawal| WQ
 
-#### **LenderStake**
-Individual lender staking information:
-- `staked_amount`: Amount of SOL staked
-- `lock_period`: Optional lock period (0 = flexible)
-- `reward_debt`: For compound interest calculation
-- `last_claim_time`: Last reward claim timestamp
-- `total_claimed`: Total rewards claimed
-- `is_active`: Stake status
+    Dev -->|request_deployment_funds| DR
+    Dev -->|pay_subscription| RP
+    Dev -->|proxy_upgrade_program| MP
+    Dev -->|deposit_escrow_sol| DE
 
-#### **DeployRequest**
-Deployment request tracking:
-- `service_fee`: One-time deployment fee
-- `monthly_fee`: Monthly subscription fee
-- `deployment_cost`: Actual deployment cost from treasury
-- `subscription_paid_until`: Subscription validity period
-- `ephemeral_key`: Temporary key for deployment
-- `deployed_program_id`: Deployed program ID (set after success)
-- `status`: Current deployment status
+    Admin -->|fund_temporary_wallet| TP
+    Admin -->|confirm_deployment| DR
+    Admin -->|process_withdrawal_queue| WQ
+    Admin -->|transfer_authority_to_pda| MP
+    Admin -->|reclaim_program_rent| MP
 
-## 🔄 Business Flow
+    MP -->|"PDA authority (upgrade/close)"| P1
+    MP -->|"PDA authority (upgrade/close)"| P2
 
-### 1. **Initialization**
-```rust
-initialize(initial_apy: u64, treasury_wallet: Pubkey)
-```
-- Admin initializes treasury pool
-- Sets initial APY rate (max 100%)
-- Configures treasury wallet
-
-### 2. **Lender Operations**
-
-#### **Stake SOL**
-```rust
-stake_sol(amount: u64, lock_period: i64)
-```
-- Stake SOL into treasury
-- Optional lock period for higher rewards
-- Auto-compound existing rewards
-- Provides liquidity for deployments
-
-#### **Unstake SOL**
-```rust
-unstake_sol(amount: u64)
-```
-- Unstake SOL (if not locked)
-- Auto-claim rewards before unstaking
-- Deactivates stake if fully unstaked
-
-#### **Claim Rewards**
-```rust
-claim_rewards()
-```
-- Claim accumulated APY rewards
-- High-precision calculation with overflow protection
-- Time-based rewards calculation
-
-### 3. **Developer Operations**
-
-#### **Deploy Program**
-```rust
-deploy_program(
-    program_hash: [u8; 32],
-    service_fee: u64,
-    monthly_fee: u64,
-    initial_months: u32,
-    deployment_cost: u64
-)
-```
-- **Requires both Developer + Admin signatures**
-- Developer pays service fee + initial subscription
-- Admin confirms deployment cost and transfers from treasury
-- Status = `PendingDeployment` initially
-
-#### **Pay Subscription**
-```rust
-pay_subscription(request_id: [u8; 32], months: u32)
-```
-- Monthly subscription payments
-- Extends program usage rights
-- Only works for `Active` or `SubscriptionExpired` programs
-
-### 4. **Admin Operations**
-
-#### **Confirm Deployment Success**
-```rust
-confirm_deployment_success(request_id: [u8; 32], deployed_program_id: Pubkey)
-```
-- Admin confirms successful deployment
-- Sets status = `Active`
-- Records deployed program ID
-
-#### **Confirm Deployment Failure**
-```rust
-confirm_deployment_failure(request_id: [u8; 32], failure_reason: String)
-```
-- Admin confirms failed deployment
-- Sets status = `Failed`
-- **Full refund** to developer
-- Returns deployment cost to treasury
-
-#### **System Management**
-```rust
-update_apy(new_apy: u64)           // Update APY rate (max 100%)
-suspend_expired_programs()         // Suspend expired programs
-emergency_pause(pause: bool)       // Emergency pause/unpause
+    TP --- RP
+    TP --- PP
 ```
 
-## 🔒 Security Features
+## Economic Model
 
-### **Multi-Signature Deployment**
-- `deploy_program` requires **both Developer + Admin signatures**
-- Admin controls deployment cost and ephemeral key
-- Developer controls payment and program hash
-- Prevents unauthorized deployments
+```mermaid
+flowchart LR
+    subgraph Inflow["SOL Inflow"]
+        S1["Staker Deposits"]
+        S2["Developer Service Fees"]
+        S3["Monthly Subscriptions"]
+        S4["Rent Recovery"]
+    end
 
-### **Deployment Failure Protection**
-- **Full refund** if deployment fails
-- Deployment cost returned to treasury
-- No financial loss for developers
-- Admin confirms success/failure status
+    subgraph Treasury["TreasuryPool"]
+        LB["liquid_balance"]
+        RPS["reward_per_share"]
+        TB["total_borrowed"]
+    end
 
-### **Treasury Wallet Validation**
-All instructions validate treasury wallet:
-```rust
-constraint = treasury_wallet.key() == treasury_pool.treasury_wallet @ ErrorCode::InvalidTreasuryWallet
+    subgraph Pools["Fee Pools"]
+        RP2["RewardPool<br/>(1% reward fee)"]
+        PP2["PlatformPool<br/>(0.1% platform fee)"]
+        PUR["pending_undistributed<br/>_rewards"]
+    end
+
+    subgraph Outflow["SOL Outflow"]
+        O1["Deployment Funding"]
+        O2["Staker Withdrawals"]
+        O3["Reward Claims"]
+        O4["Admin Withdrawals"]
+    end
+
+    S1 -->|"deposit - fees"| LB
+    S1 -->|"1% fee"| RP2
+    S1 -->|"0.1% fee"| PP2
+    S2 --> RP2
+    S3 --> RP2
+    S4 -->|"debt repayment"| LB
+    S4 -->|"excess"| RP2
+
+    LB -->|"max 80% utilization"| O1
+    LB --> O2
+    RP2 --> O3
+    RP2 -->|"first-depositor protection"| PUR
+    PUR -->|"gradual distribution"| RPS
+
+    PP2 --> O4
 ```
 
-### **Overflow Protection**
-- **High-precision calculations** using u128 arithmetic
-- **Checked arithmetic** for all operations
-- **Time limits** to prevent calculation overflow
-- **APY validation** (max 100%)
+## Deployment Lifecycle
 
-### **Role-based Access Control**
-- **Lenders**: Can only manage their own stakes
-- **Developers**: Can only manage their own deployments
-- **Admin**: Full system control with signature validation
+```mermaid
+stateDiagram-v2
+    [*] --> PendingDeployment: request_deployment_funds<br/>or create_deploy_request
 
-## 📊 Deployment Status Flow
+    PendingDeployment --> Active: confirm_deployment_success<br/>(admin)
+    PendingDeployment --> Failed: confirm_deployment_failure<br/>(admin, full refund)
 
-```
-PendingDeployment → [Admin Deploys] → Active ✅
-                 ↘ [Deployment Fails] → Failed ❌ (Full Refund)
+    Active --> SubscriptionExpired: subscription expires
+    Active --> Cancelled: close_program_and_refund
 
-Active → [Subscription Expires] → SubscriptionExpired
-      → [Non-payment] → Suspended
-      → [Developer Cancels] → Cancelled
-```
+    SubscriptionExpired --> Active: pay_subscription<br/>or auto_renew
+    SubscriptionExpired --> InGracePeriod: start_grace_period<br/>(admin)
 
-## 🛡️ Calculation Safety
+    InGracePeriod --> Active: pay_subscription<br/>or auto_renew
+    InGracePeriod --> Closed: close_expired_program<br/>(grace expired)
 
-### **Rewards Calculation**
-```rust
-// High-precision formula with overflow protection
-let numerator = staked_amount_u128
-    .checked_mul(apy_u128)
-    .checked_mul(time_elapsed_u128)
-    .checked_mul(1e18); // Precision multiplier
+    Failed --> [*]
+    Cancelled --> [*]
+    Closed --> [*]: rent recovered<br/>debt repaid
 
-let denominator = 10000 * 86400 * 365; // Annual calculation
-let reward = numerator / denominator / 1e18;
+    note right of Active
+        Developer can upgrade
+        via proxy_upgrade_program
+    end note
+
+    note right of InGracePeriod
+        3/5/7 days based on
+        subscription history
+    end note
 ```
 
-### **Safety Features**
-- ✅ **u128 arithmetic** for intermediate calculations
-- ✅ **Checked operations** to prevent overflow
-- ✅ **Time limits** (max 1 year elapsed)
-- ✅ **APY limits** (max 100%)
-- ✅ **Precision multiplier** (1e18) for accuracy
+## PDA Authority Model
 
-## 💰 Revenue Model
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant D2D as D2D Program
+    participant PDA as Authority PDA
+    participant BPF as BPF Loader
+    participant Prog as Developer's Program
 
-### **For Lenders**
-- Earn APY on staked SOL (calculated with high precision)
-- Flexible or locked staking options
-- Compound interest rewards
-- Rewards sourced from developer fees
+    Note over Dev,Prog: Deploy Phase
+    Dev->>D2D: request_deployment_funds()
+    D2D->>D2D: Admin deploys program off-chain
+    D2D->>PDA: transfer_authority_to_pda()
+    PDA-->>Prog: PDA becomes upgrade authority
 
-### **For Developers**
-- Pay service fee for deployment
-- Pay monthly subscription for program usage
-- Access to mainnet deployment at low cost
-- **Full refund** if deployment fails
+    Note over Dev,Prog: Upgrade Phase (Trustless)
+    Dev->>BPF: Upload buffer (standard)
+    Dev->>D2D: proxy_upgrade_program(buffer)
+    D2D->>D2D: Verify: developer owns program<br/>+ subscription active
+    D2D->>PDA: Sign upgrade CPI
+    PDA->>BPF: BPFLoaderUpgradeable::upgrade()
+    BPF->>Prog: Program upgraded
 
-### **For Platform**
-- Revenue from developer fees
-- Sustainable DeFi model
-- Scalable with more users
-- No financial risk for developers
-
-## 🚀 Key Features
-
-- **Low-cost Deployment**: Use pooled funds instead of individual deployment costs
-- **Subscription Model**: Pay-per-use with monthly subscriptions
-- **DeFi Integration**: Earn rewards by providing liquidity
-- **Security First**: Multi-signature validation and treasury protection
-- **Failure Protection**: Full refunds for failed deployments
-- **High Precision**: DEX-level calculation accuracy
-- **Scalable**: More lenders = more liquidity = more developers
-
-## 📁 Project Structure
-
-```
-src/
-├── lib.rs                 # Main program entry point
-├── states/               # Account state definitions
-│   ├── treasury_pool.rs  # Treasury management
-│   ├── lender_stake.rs   # Lender staking
-│   ├── deploy_request.rs # Deployment requests
-│   └── user_deploy_stats.rs # User statistics
-├── instructions/         # Program instructions
-│   ├── initialize.rs     # Program initialization
-│   ├── deploy_program.rs # Combined deployment
-│   ├── lender/          # Lender operations
-│   │   ├── stake_sol.rs
-│   │   ├── unstake_sol.rs
-│   │   └── claim_rewards.rs
-│   ├── developer/       # Developer operations
-│   │   └── pay_subscription.rs
-│   └── admin/           # Admin operations
-│       ├── confirm_deployment.rs
-│       ├── update_apy.rs
-│       ├── suspend_expired_programs.rs
-│       └── emergency_pause.rs
-├── events.rs            # Event definitions
-└── errors.rs           # Error codes
+    Note over Dev,Prog: Rent Reclaim (Expired)
+    D2D->>PDA: reclaim_program_rent()
+    PDA->>BPF: Close program data
+    BPF-->>D2D: SOL returned to treasury
+    D2D->>D2D: Debt repaid, excess to rewards
 ```
 
-## 🎯 Use Cases
+## Staker Reward System
 
-1. **Individual Developers**: Deploy personal projects at low cost
-2. **Startups**: Access mainnet without large upfront costs
-3. **Lenders**: Earn passive income from staked SOL
-4. **DeFi Protocols**: Deploy new protocols using pooled resources
+```mermaid
+flowchart TB
+    subgraph RewardSources["Reward Sources"]
+        SF["Service Fees"]
+        MF["Monthly Subscriptions"]
+        DF["Deposit Fees (1%)"]
+    end
 
-## 🔧 Getting Started
+    subgraph Distribution["Distribution Mechanism"]
+        RPS["reward_per_share<br/>(accumulator)"]
+        PUR2["pending_undistributed<br/>_rewards"]
+        DW["Duration Weight<br/>(amount x time)"]
+    end
 
-### Prerequisites
-- Solana CLI tools
-- Anchor framework
-- Rust toolchain
+    subgraph StakerRewards["Per-Staker Calculation"]
+        BR["Base Rewards<br/>= deposited * reward_per_share<br/>- reward_debt"]
+        DB["Duration Bonus<br/>= pending * (my_weight / total_weight)"]
+        TR["Total = Base + Duration Bonus"]
+    end
 
-### Deployment
-1. Initialize treasury pool with admin
-2. Set initial APY rate (max 100%)
-3. Configure treasury wallet
-4. Start accepting lender stakes
-5. Enable developer deployments
+    SF --> RPS
+    MF --> RPS
+    DF --> RPS
+    DF -->|"first depositor<br/>protection"| PUR2
 
-## 📊 Program ID
+    RPS --> BR
+    PUR2 --> DB
+    DW --> DB
+    BR --> TR
+    DB --> TR
+```
+
+## Withdrawal Queue
+
+```mermaid
+sequenceDiagram
+    participant Staker
+    participant D2D as D2D Program
+    participant Queue as WithdrawalQueue
+    participant Treasury as TreasuryPool
+
+    Note over Staker,Treasury: Insufficient Liquidity
+    Staker->>D2D: unstake_sol(amount)
+    D2D-->>Staker: Error: InsufficientLiquidBalance
+
+    Staker->>D2D: queue_withdrawal(amount)
+    D2D->>Queue: Create entry at position N
+    D2D->>Treasury: queued_withdrawal_amount += amount
+
+    Note over Staker,Treasury: Liquidity Restored (rent recovery)
+    Treasury->>Treasury: reclaim_program_rent()<br/>liquid_balance increases
+
+    D2D->>Queue: process_withdrawal_queue(N)
+    Queue->>Queue: Partial or full fulfillment
+    D2D->>Staker: Transfer SOL
+    D2D->>Treasury: Update totals
+
+    Note over Staker,Treasury: Optional: Cancel
+    Staker->>D2D: cancel_queued_withdrawal()
+    D2D->>Queue: Mark as cancelled
+    D2D->>Treasury: queued_withdrawal_amount -= amount
+```
+
+## Security Architecture
+
+```mermaid
+graph TB
+    subgraph AdminSecurity["Admin Security Layer"]
+        TL["Timelock Withdrawals<br/>(1h - 7d delay)"]
+        GV["Guardian Veto<br/>(block suspicious tx)"]
+        DL["Daily Withdrawal Limits"]
+        EP["Emergency Pause"]
+    end
+
+    subgraph EconomicSafety["Economic Safety"]
+        UL["80% Utilization Limit<br/>(20% always liquid)"]
+        DT["Debt Tracking<br/>(per deployment)"]
+        FDP["First-Depositor<br/>Arbitrage Protection"]
+        RHU["Fee Rounding<br/>(round-half-up)"]
+    end
+
+    subgraph AccessControl["Access Control"]
+        ADMIN["Admin: pool mgmt,<br/>deployments, config"]
+        GUARD["Guardian: pause,<br/>veto withdrawals"]
+        DEV2["Developer: own programs,<br/>escrow, subscriptions"]
+        STKR["Staker: own deposits,<br/>rewards, queue"]
+    end
+
+    subgraph OnChainChecks["On-Chain Validations"]
+        PDA2["PDA-based authority<br/>(no private keys)"]
+        CO["checked_* arithmetic<br/>(overflow protection)"]
+        PP3["Pause checks on<br/>all instructions"]
+        SV["Subscription validation<br/>for upgrades"]
+    end
+
+    AdminSecurity --> OnChainChecks
+    EconomicSafety --> OnChainChecks
+    AccessControl --> OnChainChecks
+```
+
+## State Accounts
+
+| Account | PDA Seeds | Purpose |
+|---------|-----------|---------|
+| **TreasuryPool** | `["treasury_pool"]` | Central pool: deposits, rewards, debt tracking, withdrawal queue, dynamic APY |
+| **BackerDeposit** | `["lender_stake", staker]` | Per-staker: deposited amount, reward debt, duration weight, queued withdrawal |
+| **DeployRequest** | `["deploy_request", ...]` | Per-deployment: status, fees, subscription, grace period, debt tracking |
+| **ManagedProgram** | `["managed_program", program_id]` | Per-program: developer, authority PDA, upgrade count |
+| **DeveloperEscrow** | `["developer_escrow", developer]` | Per-developer: SOL/USDC/USDT balances for auto-renewal |
+| **WithdrawalQueueEntry** | `["withdrawal_queue", position]` | Per-queue-entry: staker, amount, partial fulfillment tracking |
+| **PendingWithdrawal** | `["pending_withdrawal", ...]` | Admin timelock: amount, destination, execute_after, vetoed |
+| **UserDeployStats** | `["user_stats", user]` | Per-user: deployment count, rate limiting |
+
+### Sub-PDAs (Token Pools)
+
+| PDA | Seeds | Purpose |
+|-----|-------|---------|
+| **RewardPool** | `["reward_pool"]` | Holds SOL for staker rewards |
+| **PlatformPool** | `["platform_pool"]` | Holds SOL for platform revenue |
+| **Authority PDA** | `["program_authority", program_id]` | Upgrade authority for managed programs |
+
+## Instructions
+
+### Initialization
+| Instruction | Signer | Description |
+|-------------|--------|-------------|
+| `initialize` | Admin | Initialize treasury pool with APY and dev wallet |
+| `reinitialize_treasury_pool` | Admin | Reinitialize with new parameters |
+| `migrate_treasury_pool` | Admin | Migrate state for schema upgrades |
+
+### Staker (Lender) Operations
+| Instruction | Signer | Description |
+|-------------|--------|-------------|
+| `stake_sol` | Staker | Deposit SOL into treasury (1% reward fee + 0.1% platform fee) |
+| `unstake_sol` | Staker | Withdraw SOL (if liquid balance sufficient) |
+| `emergency_unstake` | Staker | Emergency withdrawal with reward settlement |
+| `claim_rewards` | Staker | Claim base rewards + duration bonus |
+| `queue_withdrawal` | Staker | Queue withdrawal when liquidity insufficient |
+| `cancel_queued_withdrawal` | Staker | Cancel a queued withdrawal |
+
+### Developer Operations
+| Instruction | Signer | Description |
+|-------------|--------|-------------|
+| `request_deployment_funds` | Developer | Request deployment with service fee + subscription |
+| `pay_subscription` | Developer | Pay monthly subscription (extends validity) |
+| `proxy_upgrade_program` | Developer | Upgrade program via PDA proxy (trustless) |
+| `initialize_escrow` | Developer | Create escrow account for auto-renewal |
+| `deposit_escrow_sol` | Developer | Deposit SOL into escrow |
+| `withdraw_escrow_sol` | Developer | Withdraw SOL from escrow |
+| `toggle_auto_renew` | Developer | Enable/disable auto-renewal |
+| `set_preferred_token` | Developer | Set preferred token (SOL/USDC/USDT) |
+
+### Admin Operations
+| Instruction | Signer | Description |
+|-------------|--------|-------------|
+| `create_deploy_request` | Admin | Create deployment request on behalf of developer |
+| `fund_temporary_wallet` | Admin | Fund temp wallet for deployment (records debt) |
+| `confirm_deployment` | Admin | Confirm deployment success/failure |
+| `transfer_authority_to_pda` | Admin | Transfer program authority to D2D PDA |
+| `reclaim_program_rent` | Admin | Reclaim rent from expired programs (repays debt) |
+| `close_program_and_refund` | Admin | Close program and refund developer |
+| `process_withdrawal_queue` | Admin | Fulfill queued withdrawals when liquidity available |
+| `distribute_pending_rewards` | Admin | Gradually distribute pending rewards to stakers |
+| `auto_renew_subscription` | Admin | Trigger auto-renewal from developer escrow |
+| `start_grace_period` | Admin | Start grace period for expired subscription |
+| `close_expired_program` | Admin | Close program after grace period expires |
+| `force_rebalance` | Admin | Sync treasury balances |
+| `sync_liquid_balance` | Admin | Sync liquid_balance with actual lamports |
+| `force_reset_deployment` | Admin | Force reset a stuck deployment |
+| `credit_fee_to_pool` | Admin | Credit fees to reward/platform pools |
+| `emergency_pause` | Admin | Toggle emergency pause |
+
+### Security Operations
+| Instruction | Signer | Description |
+|-------------|--------|-------------|
+| `set_guardian` | Admin | Set guardian address |
+| `set_timelock_duration` | Admin | Set timelock duration (1h-7d) |
+| `set_daily_limit` | Admin | Set daily withdrawal limit |
+| `initiate_withdrawal` | Admin | Initiate timelocked withdrawal |
+| `execute_withdrawal` | Admin | Execute after timelock expires |
+| `cancel_withdrawal` | Admin | Cancel pending withdrawal |
+| `guardian_pause` | Guardian | Emergency pause by guardian |
+| `guardian_veto` | Guardian | Veto a pending withdrawal |
+
+## Key Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `REWARD_FEE_BPS` | 100 (1%) | Fee on deposits directed to reward pool |
+| `PLATFORM_FEE_BPS` | 10 (0.1%) | Fee on deposits directed to platform pool |
+| `PRECISION` | 1e12 | Reward-per-share precision multiplier |
+| `MAX_UTILIZATION_BPS` | 8000 (80%) | Max pool utilization for deployments |
+| `DEFAULT_BASE_APY_BPS` | 500 (5%) | Default base APY |
+| `DEFAULT_MAX_APY_MULTIPLIER` | 30000 (3x) | Max APY multiplier at high utilization |
+| `DEFAULT_TARGET_UTILIZATION` | 6000 (60%) | Target utilization for APY curve |
+| `DEFAULT_TIMELOCK` | 86400s (24h) | Default admin withdrawal timelock |
+| `MAX_EXTENSION_MONTHS` | 120 (10y) | Maximum subscription extension |
+
+## Project Structure
 
 ```
-5aai4VhRLDCFP2WSHUbGsiSuZxkWzQahhsRkqdfF2jRh
+programs/d2d-program-sol/src/
+├── lib.rs                              # Program entry point, instruction dispatch
+├── errors.rs                           # Error codes (40+ categorized errors)
+├── events.rs                           # On-chain events (30+ event types)
+├── states/
+│   ├── treasury_pool.rs                # Central treasury with debt, queue, APY
+│   ├── lender_stake.rs                 # Per-staker deposit & reward tracking
+│   ├── deploy_request.rs              # Deployment lifecycle & subscription
+│   ├── managed_program.rs             # PDA authority proxy for programs
+│   ├── developer_escrow.rs            # Auto-renewal escrow (SOL/USDC/USDT)
+│   ├── withdrawal_queue.rs            # Staker withdrawal queue entries
+│   ├── pending_withdrawal.rs          # Admin timelocked withdrawals
+│   └── user_deploy_stats.rs           # User deployment statistics
+├── instructions/
+│   ├── initialize.rs                   # Treasury initialization
+│   ├── request_deployment_funds.rs    # Developer deployment request
+│   ├── lender/
+│   │   ├── stake_sol.rs               # Stake with first-depositor protection
+│   │   ├── unstake_sol.rs             # Unstake with queue check
+│   │   ├── claim_rewards.rs           # Claim base + duration bonus
+│   │   ├── emergency_unstake.rs       # Emergency withdrawal
+│   │   ├── queue_withdrawal.rs        # Queue when illiquid
+│   │   └── cancel_queued_withdrawal.rs
+│   ├── developer/
+│   │   ├── pay_subscription.rs        # Monthly subscription payment
+│   │   ├── proxy_upgrade_program.rs   # Trustless upgrade via PDA
+│   │   ├── initialize_escrow.rs       # Create escrow account
+│   │   ├── deposit_escrow_sol.rs      # Fund escrow
+│   │   ├── withdraw_escrow_sol.rs     # Withdraw from escrow
+│   │   ├── toggle_auto_renew.rs       # Toggle auto-renewal
+│   │   └── set_preferred_token.rs     # Set payment token preference
+│   └── admin/
+│       ├── fund_temporary_wallet.rs   # Fund deployment (debt tracking)
+│       ├── confirm_deployment.rs      # Confirm success/failure
+│       ├── transfer_authority_to_pda.rs # Transfer authority to PDA
+│       ├── reclaim_program_rent.rs    # Reclaim rent (debt repayment)
+│       ├── process_withdrawal_queue.rs # Fulfill queued withdrawals
+│       ├── distribute_pending_rewards.rs # Gradual reward distribution
+│       ├── auto_renew_subscription.rs # Trigger auto-renewal
+│       ├── start_grace_period.rs      # Start grace period
+│       ├── close_expired_program.rs   # Close after grace
+│       ├── close_program_and_refund.rs
+│       ├── create_deploy_request.rs
+│       ├── credit_fee_to_pool.rs
+│       ├── admin_withdraw.rs
+│       ├── admin_withdraw_reward_pool.rs
+│       ├── close_treasury_pool.rs
+│       ├── reinitialize_treasury_pool.rs
+│       ├── migrate_treasury_pool.rs
+│       ├── sync_liquid_balance.rs
+│       ├── force_rebalance.rs
+│       ├── force_reset_deployment.rs
+│       ├── emergency_pause.rs
+│       ├── set_guardian.rs
+│       ├── guardian_pause.rs
+│       ├── set_timelock_duration.rs
+│       ├── set_daily_limit.rs
+│       ├── initiate_withdrawal.rs
+│       ├── execute_withdrawal.rs
+│       ├── cancel_withdrawal.rs
+│       └── guardian_veto.rs
 ```
 
-## 🤝 Contributing
+## Build & Deploy
 
-This is a decentralized deployment platform designed to make Solana development more accessible and cost-effective. Contributions are welcome to improve security, efficiency, and user experience.
+```bash
+# Prerequisites
+# - Solana CLI v2.1+
+# - Anchor v0.31.1+ (CLI v0.32.1)
+# - Rust toolchain
 
-## 📄 License
+# Build
+anchor build
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+# Deploy to devnet
+anchor deploy --provider.cluster devnet
+
+# Run tests
+anchor test
+```
+
+## License
+
+MIT
