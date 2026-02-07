@@ -91,9 +91,8 @@ pub mod d2d_program_sol {
         ctx: Context<FundTemporaryWallet>,
         request_id: [u8; 32],
         amount: u64,
-        use_admin_pool: bool,
     ) -> Result<()> {
-        instructions::fund_temporary_wallet(ctx, request_id, amount, use_admin_pool)
+        instructions::fund_temporary_wallet(ctx, request_id, amount)
     }
 
     pub fn create_deploy_request(
@@ -155,6 +154,10 @@ pub mod d2d_program_sol {
         instructions::migrate_treasury_pool(ctx)
     }
 
+    pub fn force_reset_deployment(ctx: Context<ForceResetDeployment>) -> Result<()> {
+        instructions::force_reset_deployment(ctx)
+    }
+
     pub fn set_guardian(ctx: Context<SetGuardian>, new_guardian: Pubkey) -> Result<()> {
         instructions::set_guardian(ctx, new_guardian)
     }
@@ -192,4 +195,105 @@ pub mod d2d_program_sol {
     pub fn cancel_withdrawal(ctx: Context<CancelWithdrawal>) -> Result<()> {
         instructions::cancel_withdrawal(ctx)
     }
+
+    // ========================================================================
+    // Authority Proxy Instructions
+    // ========================================================================
+
+    /// Transfer program upgrade authority from temporary wallet to D2D PDA
+    /// Called by backend after successful deployment
+    pub fn transfer_authority_to_pda(ctx: Context<TransferAuthorityToPda>) -> Result<()> {
+        instructions::transfer_authority_to_pda(ctx)
+    }
+
+    /// Developer upgrades their program via PDA proxy
+    /// No platform approval needed - trustless upgrade if subscription is active
+    pub fn proxy_upgrade_program(ctx: Context<ProxyUpgradeProgram>) -> Result<()> {
+        instructions::proxy_upgrade_program(ctx)
+    }
+
+    /// Admin reclaims program rent when subscription expires
+    /// Returns SOL to treasury pool
+    pub fn reclaim_program_rent(ctx: Context<ReclaimProgramRent>) -> Result<()> {
+        instructions::reclaim_program_rent(ctx)
+    }
+
+    // ========================================================================
+    // Developer Escrow & Auto-Renewal Instructions
+    // ========================================================================
+
+    /// Developer initializes their escrow account for auto-renewal
+    pub fn initialize_escrow(ctx: Context<InitializeEscrow>) -> Result<()> {
+        instructions::initialize_escrow(ctx)
+    }
+
+    /// Developer deposits SOL into escrow for auto-renewal
+    pub fn deposit_escrow_sol(ctx: Context<DepositEscrowSol>, amount: u64) -> Result<()> {
+        instructions::deposit_escrow_sol(ctx, amount)
+    }
+
+    /// Developer withdraws SOL from escrow
+    pub fn withdraw_escrow_sol(ctx: Context<WithdrawEscrowSol>, amount: u64) -> Result<()> {
+        instructions::withdraw_escrow_sol(ctx, amount)
+    }
+
+    /// Developer toggles auto-renewal on/off
+    pub fn toggle_auto_renew(ctx: Context<ToggleAutoRenew>, enabled: bool) -> Result<()> {
+        instructions::toggle_auto_renew(ctx, enabled)
+    }
+
+    /// Developer sets preferred token type for auto-renewal (0=SOL, 1=USDC, 2=USDT)
+    pub fn set_preferred_token(ctx: Context<SetPreferredToken>, token_type: u8) -> Result<()> {
+        instructions::set_preferred_token(ctx, token_type)
+    }
+
+    /// Admin triggers auto-renewal from escrow when subscription is due
+    pub fn auto_renew_subscription(
+        ctx: Context<AutoRenewSubscription>,
+        request_id: [u8; 32],
+        months: u32,
+    ) -> Result<()> {
+        instructions::auto_renew_subscription(ctx, request_id, months)
+    }
+
+    /// Admin starts grace period for expired subscription
+    pub fn start_grace_period(ctx: Context<StartGracePeriod>, request_id: [u8; 32]) -> Result<()> {
+        instructions::start_grace_period(ctx, request_id)
+    }
+
+    /// Admin closes program after grace period expires
+    pub fn close_expired_program(
+        ctx: Context<CloseExpiredProgram>,
+        request_id: [u8; 32],
+    ) -> Result<()> {
+        instructions::close_expired_program(ctx, request_id)
+    }
+
+    // ========================================================================
+    // Withdrawal Queue Instructions (Economic Model Fix)
+    // ========================================================================
+
+    /// Staker queues a withdrawal when liquidity is insufficient
+    pub fn queue_withdrawal(ctx: Context<QueueWithdrawal>, amount: u64) -> Result<()> {
+        instructions::queue_withdrawal(ctx, amount)
+    }
+
+    /// Staker cancels a queued withdrawal
+    pub fn cancel_queued_withdrawal(ctx: Context<CancelQueuedWithdrawal>) -> Result<()> {
+        instructions::cancel_queued_withdrawal(ctx)
+    }
+
+    // ========================================================================
+    // Fair Reward Distribution Instructions (Economic Model Fix)
+    // ========================================================================
+
+    /// Admin distributes pending undistributed rewards to stakers
+    /// Called periodically to gradually release accumulated rewards
+    pub fn distribute_pending_rewards(
+        ctx: Context<DistributePendingRewards>,
+        distribution_percentage_bps: u64,
+    ) -> Result<()> {
+        instructions::distribute_pending_rewards(ctx, distribution_percentage_bps)
+    }
 }
+

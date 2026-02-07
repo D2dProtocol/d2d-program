@@ -62,18 +62,15 @@ pub fn force_rebalance(ctx: Context<ForceRebalance>) -> Result<()> {
         .checked_sub(rent_exemption)
         .ok_or(ErrorCode::CalculationOverflow)?;
 
-    // Account for other pools (reward_pool and platform_pool are separate)
-    let other_pools = treasury_pool
-        .reward_pool_balance
-        .checked_add(treasury_pool.platform_pool_balance)
-        .ok_or(ErrorCode::CalculationOverflow)?;
+    // SECURITY FIX H-01: reward_pool and platform_pool are SEPARATE PDAs
+    // They are NOT part of treasury_pda lamports, so do NOT subtract them
+    // treasury_pda only holds staker deposits (liquid_balance)
+    //
+    // The old logic incorrectly subtracted reward_pool_balance + platform_pool_balance
+    // which are state values for different accounts, not lamports in this PDA
 
-    // Available for liquid_balance (shared between deployments and withdrawals)
-    let new_liquid_balance = balance_after_rent
-        .checked_sub(other_pools)
-        .ok_or(ErrorCode::CalculationOverflow)?;
-
-    // Update liquid_balance
+    // Update liquid_balance to match actual available balance
+    let new_liquid_balance = balance_after_rent;
     treasury_pool.liquid_balance = new_liquid_balance;
 
     msg!("[FORCE_REBALANCE] Emergency rebalance executed");

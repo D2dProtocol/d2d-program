@@ -45,7 +45,7 @@ pub fn emergency_unstake_sol(ctx: Context<EmergencyUnstakeSol>, amount: u64) -> 
     let current_space = treasury_pool_info.data_len();
 
     if current_space < required_space {
-        treasury_pool_info.realloc(required_space, false)?;
+        treasury_pool_info.resize(required_space)?;
     }
 
     let mut treasury_pool =
@@ -54,6 +54,7 @@ pub fn emergency_unstake_sol(ctx: Context<EmergencyUnstakeSol>, amount: u64) -> 
 
     let treasury_pda_info = ctx.accounts.treasury_pda.to_account_info();
     let lender_stake = &mut ctx.accounts.lender_stake;
+    let current_time = Clock::get()?.unix_timestamp;
 
     require!(amount > 0, ErrorCode::InvalidAmount);
     require!(
@@ -63,6 +64,16 @@ pub fn emergency_unstake_sol(ctx: Context<EmergencyUnstakeSol>, amount: u64) -> 
 
     if lender_stake.deposited_amount == 0 {
         return Err(ErrorCode::InsufficientStake.into());
+    }
+
+    // SECURITY FIX M-04: Settle pending rewards BEFORE reducing deposited_amount
+    // This ensures users don't lose accrued rewards during emergency unstake
+    lender_stake.settle_pending_rewards(treasury_pool.reward_per_share)?;
+
+    // Update duration weight before withdrawal
+    let weight_delta = lender_stake.update_duration_weight(current_time)?;
+    if weight_delta > 0 {
+        treasury_pool.update_stake_duration_weight(weight_delta)?;
     }
 
     let treasury_lamports = treasury_pda_info.lamports();
@@ -81,6 +92,9 @@ pub fn emergency_unstake_sol(ctx: Context<EmergencyUnstakeSol>, amount: u64) -> 
         .deposited_amount
         .checked_sub(amount)
         .ok_or(ErrorCode::CalculationOverflow)?;
+
+    // SECURITY FIX M-04: Update reward_debt after changing deposited_amount
+    lender_stake.update_reward_debt(treasury_pool.reward_per_share)?;
 
     if lender_stake.deposited_amount == 0 {
         lender_stake.is_active = false;

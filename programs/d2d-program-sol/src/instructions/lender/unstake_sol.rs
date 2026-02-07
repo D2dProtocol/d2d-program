@@ -45,7 +45,7 @@ pub fn unstake_sol(ctx: Context<UnstakeSol>, amount: u64) -> Result<()> {
     let current_space = treasury_pool_info.data_len();
 
     if current_space < required_space {
-        treasury_pool_info.realloc(required_space, false)?;
+        treasury_pool_info.resize(required_space)?;
     }
 
     let mut treasury_pool = TreasuryPool::try_deserialize(&mut &treasury_pool_info.data.borrow()[..])
@@ -65,7 +65,20 @@ pub fn unstake_sol(ctx: Context<UnstakeSol>, amount: u64) -> Result<()> {
         return Err(ErrorCode::InsufficientStake.into());
     }
 
+    // Check if staker has a pending queued withdrawal
+    require!(
+        !lender_stake.has_queued_withdrawal(),
+        ErrorCode::WithdrawalAlreadyQueued
+    );
+
     lender_stake.settle_pending_rewards(treasury_pool.reward_per_share)?;
+
+    // Update duration weight before withdrawal
+    let current_time = Clock::get()?.unix_timestamp;
+    let weight_delta = lender_stake.update_duration_weight(current_time)?;
+    if weight_delta > 0 {
+        treasury_pool.update_stake_duration_weight(weight_delta)?;
+    }
 
     let treasury_lamports = treasury_pda_info.lamports();
     let account_data_size = treasury_pda_info.data_len();

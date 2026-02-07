@@ -94,12 +94,10 @@ pub fn create_deploy_request(
             deploy_request_info.owner == program_id,
             ErrorCode::InvalidAccountOwner
         );
-        msg!("[CREATE_DEPLOY_REQUEST] Account exists ({} bytes), owner verified: {}", current_space, deploy_request_info.owner);
     }
-    
+
     // Initialize account if new
     if is_new_account {
-        msg!("[CREATE_DEPLOY_REQUEST] Initializing new deploy_request account ({} bytes)", required_space);
         let rent = Rent::get()?;
         let lamports_required = rent.minimum_balance(required_space);
         
@@ -141,17 +139,13 @@ pub fn create_deploy_request(
         // Account exists but size doesn't match - need to resize
         if current_space < required_space {
             // Need to grow the account
-            msg!("[CREATE_DEPLOY_REQUEST] Growing account from {} to {} bytes", current_space, required_space);
-            
             let rent = Rent::get()?;
             let current_rent = rent.minimum_balance(current_space);
             let new_rent = rent.minimum_balance(required_space);
             let additional_lamports_needed = new_rent
                 .checked_sub(current_rent)
                 .ok_or(ErrorCode::CalculationOverflow)?;
-            
-            msg!("[CREATE_DEPLOY_REQUEST] Additional lamports needed: {}", additional_lamports_needed);
-            
+
             // Transfer additional lamports if needed
             if additional_lamports_needed > 0 {
                 let transfer_cpi = CpiContext::new(
@@ -164,26 +158,25 @@ pub fn create_deploy_request(
                 system_program::transfer(transfer_cpi, additional_lamports_needed)?;
             }
             
-            // Resize (we already verified owner is program)
-            // Using realloc for now (deprecated but still works)
+            // Resize account to new size
+            // Note: AccountInfo::realloc is marked deprecated but is still the
+            // recommended way to resize accounts. The deprecation is about
+            // encouraging use of proper rent handling (which we do above).
             #[allow(deprecated)]
             deploy_request_info.realloc(required_space, false)?;
             
             // Zero out the new portion
             let mut data = deploy_request_info.try_borrow_mut_data()?;
             data[current_space..].fill(0);
-        } else {
-            // Account is larger than needed - this is OK, just use what we need
-            msg!("[CREATE_DEPLOY_REQUEST] Account size {} is larger than required {}, using existing size", current_space, required_space);
         }
+        // Account is larger than needed - OK, just use what we need
     }
-    
+
     // Deserialize deploy_request (will work after resize/init)
     let mut deploy_request = match DeployRequest::try_deserialize(&mut &deploy_request_info.data.borrow()[..]) {
         Ok(dr) => dr,
         Err(_) => {
             // If deserialization fails, initialize as new
-            msg!("[CREATE_DEPLOY_REQUEST] Deserialization failed, initializing as new account");
             DeployRequest {
                 request_id: [0u8; 32],
                 developer: Pubkey::default(),
@@ -198,6 +191,19 @@ pub fn create_deploy_request(
                 status: DeployRequestStatus::PendingDeployment,
                 created_at: 0,
                 bump: ctx.bumps.deploy_request,
+                // Grace period fields
+                grace_period_days: 3,
+                grace_period_end: 0,
+                total_subscribed_months: 0,
+                auto_renewal_enabled: true,
+                last_renewal_at: 0,
+                auto_renewal_failed_count: 0,
+                // Debt repayment tracking fields
+                repaid_amount: 0,
+                expected_rent_recovery: 0,
+                actual_rent_recovered: 0,
+                recovery_ratio_bps: 0,
+                debt_repaid_at: 0,
             }
         }
     };

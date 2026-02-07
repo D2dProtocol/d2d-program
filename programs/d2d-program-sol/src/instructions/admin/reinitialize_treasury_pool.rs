@@ -51,7 +51,7 @@ pub fn reinitialize_treasury_pool(
 
     let current_space = treasury_pool_info.data_len();
     if current_space < required_space {
-        treasury_pool_info.realloc(required_space, false)?;
+        treasury_pool_info.resize(required_space)?;
     }
 
     let mut data = treasury_pool_info.try_borrow_mut_data()?;
@@ -79,6 +79,23 @@ pub fn reinitialize_treasury_pool(
         reward_pool_bump: ctx.bumps.reward_pool,
         platform_pool_bump: ctx.bumps.platform_pool,
         bump: ctx.bumps.treasury_pool,
+        // Debt tracking fields
+        total_borrowed: 0,
+        total_recovered: 0,
+        total_debt_repaid: 0,
+        active_deployment_count: 0,
+        // Fair reward distribution fields
+        total_stake_duration_weight: 0,
+        last_weight_update: 0,
+        pending_undistributed_rewards: 0,
+        // Withdrawal queue fields
+        withdrawal_queue_head: 0,
+        withdrawal_queue_tail: 0,
+        queued_withdrawal_amount: 0,
+        // Dynamic APY fields
+        base_apy_bps: TreasuryPool::DEFAULT_BASE_APY_BPS,
+        max_apy_multiplier_bps: TreasuryPool::DEFAULT_MAX_APY_MULTIPLIER_BPS,
+        target_utilization_bps: TreasuryPool::DEFAULT_TARGET_UTILIZATION_BPS,
     };
 
     treasury_pool.try_serialize(&mut &mut data[..])?;

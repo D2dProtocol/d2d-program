@@ -1,15 +1,15 @@
 use crate::errors::ErrorCode;
-use crate::events::TemporaryWalletFunded;
+use crate::events::{DeploymentBorrowed, TemporaryWalletFunded};
 use crate::states::{DeployRequest, DeployRequestStatus, TreasuryPool};
 use anchor_lang::prelude::*;
 
 /// Fund a temporary wallet for deployment
 /// Only backend admin can call this instruction
-/// 
-/// Policy: Prefer Reward Pool for operational deploys, Admin Pool for special Ops
-/// This allows Reward Pool to be used for deployments while maintaining separation
+///
+/// Funds are taken from TreasuryPool.liquid_balance (not from reward/platform pools)
+/// This ensures proper tracking of deployed funds and protects backer deposits.
 #[derive(Accounts)]
-#[instruction(request_id: [u8; 32], amount: u64, use_admin_pool: bool)]
+#[instruction(request_id: [u8; 32], amount: u64)]
 pub struct FundTemporaryWallet<'info> {
     #[account(
         mut,
@@ -46,12 +46,13 @@ pub struct FundTemporaryWallet<'info> {
 }
 
 /// Fund temporary wallet for deployment
-/// 
+///
 /// Flow:
 /// 1. Check TreasuryPool.liquid_balance >= deployment_cost
-/// 2. Transfer from Treasury Pool PDA -> temporary wallet (via lamport mutation)
-/// 3. Update liquid_balance in TreasuryPool state
-/// 
+/// 2. Verify 80% pool utilization limit is not exceeded
+/// 3. Transfer from Treasury Pool PDA -> temporary wallet (via lamport mutation)
+/// 4. Update liquid_balance in TreasuryPool state
+///
 /// NOTE: Funds sourced from TreasuryPool.liquid_balance (NOT RewardPool or PlatformPool)
 /// RewardPool is used exclusively for paying rewards to backers
 /// PlatformPool is used exclusively for admin operations (0.1% developer fees)
@@ -59,7 +60,6 @@ pub fn fund_temporary_wallet(
     ctx: Context<FundTemporaryWallet>,
     _request_id: [u8; 32],
     amount: u64,
-    _use_admin_pool: bool, // Unused: always uses TreasuryPool.liquid_balance
 ) -> Result<()> {
     let treasury_pool = &mut ctx.accounts.treasury_pool;
     let deploy_request = &mut ctx.accounts.deploy_request;
@@ -78,6 +78,13 @@ pub fn fund_temporary_wallet(
     require!(
         treasury_pool.liquid_balance >= amount,
         ErrorCode::InsufficientLiquidBalance
+    );
+
+    // SECURITY: Check 80% pool utilization limit
+    // Prevents over-utilizing the pool which would leave insufficient funds for withdrawals
+    require!(
+        treasury_pool.check_utilization_limit(amount)?,
+        ErrorCode::PoolUtilizationTooHigh
     );
 
     let treasury_pda_info = ctx.accounts.treasury_pda.to_account_info();
@@ -117,11 +124,29 @@ pub fn fund_temporary_wallet(
     deploy_request.ephemeral_key = Some(temporary_wallet_info.key());
     deploy_request.borrowed_amount = amount; // Track borrowed amount for fee calculation (1% monthly)
 
+    // Set expected rent recovery estimate (typically ~80% of deployment cost)
+    deploy_request.set_expected_rent_recovery(amount);
+
+    // Update global debt tracking in treasury pool
+    treasury_pool.record_deployment_borrow(amount)?;
+
+    let current_time = Clock::get()?.unix_timestamp;
+
     emit!(TemporaryWalletFunded {
         request_id: deploy_request.request_id,
         temporary_wallet: temporary_wallet_info.key(),
         amount,
-        funded_at: Clock::get()?.unix_timestamp,
+        funded_at: current_time,
+    });
+
+    // Emit debt tracking event
+    emit!(DeploymentBorrowed {
+        deploy_request_id: deploy_request.request_id,
+        developer: deploy_request.developer,
+        borrowed_amount: amount,
+        total_borrowed: treasury_pool.total_borrowed,
+        active_deployment_count: treasury_pool.active_deployment_count,
+        borrowed_at: current_time,
     });
 
     Ok(())

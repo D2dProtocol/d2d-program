@@ -207,3 +207,208 @@ pub struct EmergencyUnstake {
     pub remaining_staked: u64,
     pub unstaked_at: i64,
 }
+
+// Authority Proxy events
+#[event]
+pub struct AuthorityTransferred {
+    pub program_id: Pubkey,
+    pub old_authority: Pubkey,
+    pub new_authority_pda: Pubkey,
+    pub transferred_at: i64,
+}
+
+#[event]
+pub struct ProgramUpgraded {
+    pub program_id: Pubkey,
+    pub developer: Pubkey,
+    pub buffer_address: Pubkey,
+    pub upgraded_at: i64,
+}
+
+#[event]
+pub struct ProgramRentReclaimed {
+    pub program_id: Pubkey,
+    pub developer: Pubkey,
+    pub lamports_recovered: u64,
+    pub reclaimed_at: i64,
+}
+
+// Escrow & Auto-Renewal events
+
+#[event]
+pub struct EscrowInitialized {
+    pub developer: Pubkey,
+    pub escrow_pda: Pubkey,
+    pub auto_renew_enabled: bool,
+    pub initialized_at: i64,
+}
+
+#[event]
+pub struct EscrowDeposited {
+    pub developer: Pubkey,
+    pub token_type: u8, // 0=SOL, 1=USDC, 2=USDT
+    pub amount: u64,
+    pub new_balance: u64,
+    pub deposited_at: i64,
+}
+
+#[event]
+pub struct EscrowWithdrawn {
+    pub developer: Pubkey,
+    pub token_type: u8,
+    pub amount: u64,
+    pub remaining_balance: u64,
+    pub withdrawn_at: i64,
+}
+
+#[event]
+pub struct AutoRenewalExecuted {
+    pub request_id: [u8; 32],
+    pub developer: Pubkey,
+    pub token_type: u8,
+    pub amount_deducted: u64,
+    pub months_renewed: u32,
+    pub new_expiry: i64,
+    pub escrow_remaining: u64,
+    pub renewed_at: i64,
+}
+
+#[event]
+pub struct AutoRenewalFailed {
+    pub request_id: [u8; 32],
+    pub developer: Pubkey,
+    pub reason: String,
+    pub escrow_balance: u64,
+    pub required_amount: u64,
+    pub failed_at: i64,
+}
+
+#[event]
+pub struct GracePeriodStarted {
+    pub request_id: [u8; 32],
+    pub developer: Pubkey,
+    pub grace_period_days: u8,
+    pub grace_period_end: i64,
+    pub started_at: i64,
+}
+
+#[event]
+pub struct GracePeriodEnded {
+    pub request_id: [u8; 32],
+    pub developer: Pubkey,
+    pub action: String, // "renewed" or "closed"
+    pub ended_at: i64,
+}
+
+#[event]
+pub struct ProgramClosedAfterGrace {
+    pub request_id: [u8; 32],
+    pub developer: Pubkey,
+    pub program_id: Pubkey,
+    pub grace_period_days: u8,
+    pub closed_at: i64,
+}
+
+#[event]
+pub struct AutoRenewSettingsChanged {
+    pub developer: Pubkey,
+    pub auto_renew_enabled: bool,
+    pub preferred_token: u8,
+    pub changed_at: i64,
+}
+
+// === DEBT TRACKING EVENTS ===
+
+#[event]
+pub struct DebtRepaid {
+    pub deploy_request_id: [u8; 32],
+    pub developer: Pubkey,
+    pub borrowed_amount: u64,
+    pub repaid_amount: u64,
+    pub remaining_debt: u64,
+    pub recovery_ratio_bps: u64,
+    pub repaid_at: i64,
+}
+
+#[event]
+pub struct DeploymentBorrowed {
+    pub deploy_request_id: [u8; 32],
+    pub developer: Pubkey,
+    pub borrowed_amount: u64,
+    pub total_borrowed: u64,
+    pub active_deployment_count: u32,
+    pub borrowed_at: i64,
+}
+
+// === WITHDRAWAL QUEUE EVENTS ===
+
+#[event]
+pub struct StakerWithdrawalQueued {
+    pub staker: Pubkey,
+    pub amount: u64,
+    pub queue_position: u32,
+    pub queued_withdrawal_total: u64,
+    pub queued_at: i64,
+}
+
+#[event]
+pub struct WithdrawalQueueProcessed {
+    pub entries_processed: u32,
+    pub total_amount: u64,
+    pub remaining_queued: u64,
+    pub processed_at: i64,
+}
+
+#[event]
+pub struct StakerWithdrawalCancelled {
+    pub staker: Pubkey,
+    pub amount_cancelled: u64,
+    pub cancelled_at: i64,
+}
+
+#[event]
+pub struct QueuedWithdrawalFulfilled {
+    pub staker: Pubkey,
+    pub amount: u64,
+    pub partial: bool,
+    pub fulfilled_at: i64,
+}
+
+// === FAIR REWARD DISTRIBUTION EVENTS ===
+
+#[event]
+pub struct PendingRewardsDistributed {
+    pub amount_distributed: u64,
+    pub remaining_pending: u64,
+    pub new_reward_per_share: u128,
+    pub distributed_at: i64,
+}
+
+#[event]
+pub struct DurationBonusClaimed {
+    pub staker: Pubkey,
+    pub duration_bonus: u64,
+    pub stake_duration_weight: u128,
+    pub claimed_at: i64,
+}
+
+#[event]
+pub struct RewardsMovedToPending {
+    pub amount: u64,
+    pub reason: String,
+    pub moved_at: i64,
+}
+
+// === PROTOCOL HEALTH EVENTS ===
+
+#[event]
+pub struct ProtocolHealthUpdated {
+    pub utilization_bps: u64,
+    pub current_apy_bps: u64,
+    pub total_borrowed: u64,
+    pub total_deposited: u64,
+    pub queued_withdrawals: u64,
+    pub recovery_ratio_bps: u64,
+    pub updated_at: i64,
+}
+

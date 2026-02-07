@@ -6,7 +6,9 @@ use anchor_lang::system_program;
 
 #[derive(Accounts)]
 pub struct PaySubscription<'info> {
+    // SECURITY FIX H-02: Added mut constraint for state updates
     #[account(
+        mut,
         seeds = [TreasuryPool::PREFIX_SEED],
         bump = treasury_pool.bump
     )]
@@ -19,12 +21,14 @@ pub struct PaySubscription<'info> {
     pub deploy_request: Account<'info, DeployRequest>,
     #[account(mut)]
     pub developer: Signer<'info>,
-    /// CHECK: Dev wallet address - validated against treasury_pool
+    /// CHECK: Reward pool PDA - receives subscription payments for staker rewards
+    /// SECURITY FIX H-02: Transfer to reward_pool instead of dev_wallet
     #[account(
         mut,
-        constraint = dev_wallet.key() == treasury_pool.dev_wallet @ ErrorCode::InvalidTreasuryWallet
+        seeds = [TreasuryPool::REWARD_POOL_SEED],
+        bump = treasury_pool.reward_pool_bump
     )]
-    pub dev_wallet: UncheckedAccount<'info>,
+    pub reward_pool: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -55,21 +59,22 @@ pub fn pay_subscription(
     // Calculate payment amount
     let payment_amount = deploy_request.monthly_fee * months as u64;
 
-    // Extend subscription
-    deploy_request.extend_subscription(months);
+    // Extend subscription (with overflow protection)
+    deploy_request.extend_subscription(months)?;
 
     // Update status to active
     deploy_request.status = DeployRequestStatus::Active;
 
-    // Update treasury pool - credit payment to reward pool
-    treasury_pool.credit_reward_pool(payment_amount as u128)?;
+    // SECURITY FIX H-02: Credit reward pool AND transfer to reward_pool PDA
+    // This ensures state and actual lamports are in sync
+    treasury_pool.credit_fee_to_pool(payment_amount, 0)?;
 
-    // Transfer payment to dev wallet
+    // Transfer payment to reward_pool PDA (not dev_wallet)
     let cpi_context = CpiContext::new(
         ctx.accounts.system_program.to_account_info(),
         system_program::Transfer {
             from: ctx.accounts.developer.to_account_info(),
-            to: ctx.accounts.dev_wallet.to_account_info(),
+            to: ctx.accounts.reward_pool.to_account_info(),
         },
     );
     system_program::transfer(cpi_context, payment_amount)?;

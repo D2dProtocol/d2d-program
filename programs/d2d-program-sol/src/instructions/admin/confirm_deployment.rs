@@ -84,13 +84,16 @@ pub fn confirm_deployment_success(
         ErrorCode::InvalidRecoveredFunds
     );
 
-    // Verify ephemeral_key matches the one in deploy_request
-    if let Some(expected_ephemeral) = deploy_request.ephemeral_key {
-        require!(
-            ephemeral_key_info.key() == expected_ephemeral,
-            ErrorCode::InvalidEphemeralKey
-        );
-    }
+    // SECURITY FIX C-02: Always verify ephemeral_key - MUST be set and match
+    // Reject if ephemeral_key was never set (deployment was never properly funded)
+    require!(
+        deploy_request.ephemeral_key.is_some(),
+        ErrorCode::EphemeralKeyNotSet
+    );
+    require!(
+        ephemeral_key_info.key() == deploy_request.ephemeral_key.unwrap(),
+        ErrorCode::InvalidEphemeralKey
+    );
 
     // Update deploy request
     deploy_request.status = DeployRequestStatus::Active;
@@ -176,6 +179,16 @@ pub fn confirm_deployment_failure(
         ErrorCode::InvalidRequestStatus
     );
 
+    // SECURITY FIX C-02: Always verify ephemeral_key in failure path too
+    require!(
+        deploy_request.ephemeral_key.is_some(),
+        ErrorCode::EphemeralKeyNotSet
+    );
+    require!(
+        ephemeral_key_info.key() == deploy_request.ephemeral_key.unwrap(),
+        ErrorCode::InvalidEphemeralKey
+    );
+
     // Calculate refund amount
     // Developer paid: service_fee + (monthly_fee * initial_months)
     // Calculate initial_months from subscription_paid_until and created_at
@@ -228,15 +241,16 @@ pub fn confirm_deployment_failure(
     // CRITICAL: Recovered funds go to TreasuryPool, NOT PlatformPool
     let remaining_funds = ephemeral_key_info.lamports();
     if remaining_funds > 0 {
-        {
-            let mut treasury_lamports = treasury_pda_info.try_borrow_mut_lamports()?;
-            let mut ephemeral_lamports = ephemeral_key_info.try_borrow_mut_lamports()?;
-            
-            **treasury_lamports = (**treasury_lamports)
-                .checked_add(remaining_funds)
-                .ok_or(ErrorCode::CalculationOverflow)?;
-            **ephemeral_lamports = 0; // Empty ephemeral key
-        }
+        // Use CPI System Program transfer from ephemeral_key to treasury_pda
+        // Note: ephemeral_key must be a signer for this transfer
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ephemeral_key_info,
+                to: treasury_pda_info,
+            },
+        );
+        system_program::transfer(cpi_context, remaining_funds)?;
         
         // Update liquid_balance (recovered funds available for deployments)
         // This is the correct place for recovered deployment funds
@@ -244,10 +258,6 @@ pub fn confirm_deployment_failure(
             .liquid_balance
             .checked_add(remaining_funds)
             .ok_or(ErrorCode::CalculationOverflow)?;
-        
-        
-        // NOTE: Do NOT update platform_pool_balance
-        // PlatformPool only receives 0.1% developer fees, not recovered deployment funds
     }
 
     // IMPORTANT: Refund fees collected (decrease reward_pool_balance)

@@ -1,5 +1,5 @@
 use crate::errors::ErrorCode;
-use crate::events::SolStaked;
+use crate::events::{RewardsMovedToPending, SolStaked};
 use crate::states::{BackerDeposit, TreasuryPool};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::rent::Rent;
@@ -47,7 +47,7 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
     let current_space = treasury_pool_info.data_len();
 
     if current_space < required_space {
-        treasury_pool_info.realloc(required_space, false)?;
+        treasury_pool_info.resize(required_space)?;
     }
 
     let mut treasury_pool = TreasuryPool::try_deserialize(&mut &treasury_pool_info.data.borrow()[..])
@@ -80,6 +80,7 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
     );
 
     let is_new_deposit = lender_stake.backer == Pubkey::default();
+    let current_time = Clock::get()?.unix_timestamp;
 
     if is_new_deposit {
         lender_stake.backer = ctx.accounts.lender.key();
@@ -89,28 +90,42 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
         lender_stake.claimed_total = 0;
         lender_stake.is_active = true;
         lender_stake.bump = ctx.bumps.lender_stake;
+
+        // Initialize duration tracking timestamps for new deposit
+        lender_stake.initialize_timestamps(current_time);
     } else {
         if !lender_stake.is_active {
             lender_stake.is_active = true;
         }
         lender_stake.settle_pending_rewards(treasury_pool.reward_per_share)?;
+
+        // Update duration weight for existing staker before adding more
+        let weight_delta = lender_stake.update_duration_weight(current_time)?;
+        if weight_delta > 0 {
+            treasury_pool.update_stake_duration_weight(weight_delta)?;
+        }
     }
 
+    // === FIX: FIRST DEPOSITOR ARBITRAGE ===
+    // Instead of giving all accumulated rewards to the first depositor,
+    // move them to pending_undistributed_rewards for gradual distribution
     let total_deposited_before = treasury_pool.total_deposited;
     if total_deposited_before == 0 && treasury_pool.reward_pool_balance > 0 {
         let excess_rewards = treasury_pool.reward_pool_balance;
-        let new_total_deposited = deposit_amount;
 
-        let excess_reward_per_share = (excess_rewards as u128)
-            .checked_mul(TreasuryPool::PRECISION)
-            .ok_or(ErrorCode::CalculationOverflow)?
-            .checked_div(new_total_deposited as u128)
-            .ok_or(ErrorCode::CalculationOverflow)?;
+        // FIXED: Move excess rewards to pending for gradual distribution
+        // This prevents the first depositor from claiming all rewards instantly
+        treasury_pool.move_to_pending_rewards(excess_rewards)?;
 
-        treasury_pool.reward_per_share = treasury_pool
-            .reward_per_share
-            .checked_add(excess_reward_per_share)
-            .ok_or(ErrorCode::CalculationOverflow)?;
+        // Emit event for transparency
+        emit!(RewardsMovedToPending {
+            amount: excess_rewards,
+            reason: "First depositor protection - rewards moved to pending".to_string(),
+            moved_at: current_time,
+        });
+
+        // DO NOT update reward_per_share here!
+        // Rewards will be distributed gradually via distribute_pending_rewards instruction
     }
 
     lender_stake.deposited_amount = lender_stake
