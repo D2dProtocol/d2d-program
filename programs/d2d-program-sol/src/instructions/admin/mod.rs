@@ -33,6 +33,9 @@ pub mod start_grace_period;
 // Fair reward distribution
 pub mod distribute_pending_rewards;
 
+// Withdrawal queue processing
+pub mod process_withdrawal_queue;
+
 pub use admin_withdraw::*;
 pub use admin_withdraw_reward_pool::*;
 pub use close_program_and_refund::*;
@@ -67,3 +70,6 @@ pub use start_grace_period::*;
 
 // Fair reward distribution
 pub use distribute_pending_rewards::*;
+
+// Withdrawal queue processing
+pub use process_withdrawal_queue::*;

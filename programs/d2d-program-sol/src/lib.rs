@@ -283,6 +283,15 @@ pub mod d2d_program_sol {
         instructions::cancel_queued_withdrawal(ctx)
     }
 
+    /// Admin processes a queued withdrawal when liquidity becomes available
+    /// Processes one entry per call - invoke repeatedly for batch processing
+    pub fn process_withdrawal_queue(
+        ctx: Context<ProcessWithdrawalQueue>,
+        queue_position: u32,
+    ) -> Result<()> {
+        instructions::process_withdrawal_queue(ctx, queue_position)
+    }
+
     // ========================================================================
     // Fair Reward Distribution Instructions (Economic Model Fix)
     // ========================================================================
