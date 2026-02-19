@@ -11,13 +11,15 @@
     "test:authorization": "mocha -r ts-node/register tests/authorization-security.test.ts",
     "test:edge-cases": "mocha -r ts-node/register tests/edge-cases.test.ts",
     "test:events": "mocha -r ts-node/register tests/events.test.ts",
-    "test:integration": "mocha -r ts-node/register tests/integration.test.ts"
+    "test:integration": "mocha -r ts-node/register tests/integration.test.ts",
+    "prepare": "husky"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.0",
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.2",
-    "dotenv": "^16.5.0"
+    "dotenv": "^16.5.0",
+    "husky": "^9.1.7"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",

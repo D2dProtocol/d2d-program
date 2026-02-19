@@ -1,39 +1,38 @@
-use crate::errors::ErrorCode;
-use crate::events::AdminWithdrew;
-use crate::states::TreasuryPool;
 use anchor_lang::prelude::*;
+
+use crate::{errors::ErrorCode, events::AdminWithdrew, states::TreasuryPool};
 
 /// Admin withdraw funds from Platform Pool
 ///
 /// Safety: Only admin can withdraw, with event logging for audit
 #[derive(Accounts)]
 pub struct AdminWithdraw<'info> {
-    #[account(
+  #[account(
         mut,
         seeds = [TreasuryPool::PREFIX_SEED],
         bump = treasury_pool.bump
     )]
-    pub treasury_pool: Account<'info, TreasuryPool>,
-    
-    /// CHECK: Platform Pool PDA (program-owned, holds platform funds)
-    #[account(
+  pub treasury_pool: Account<'info, TreasuryPool>,
+
+  /// CHECK: Platform Pool PDA (program-owned, holds platform funds)
+  #[account(
         mut,
         seeds = [TreasuryPool::PLATFORM_POOL_SEED],
         bump = treasury_pool.platform_pool_bump
     )]
-    pub platform_pool: UncheckedAccount<'info>,
-    
-    #[account(
+  pub platform_pool: UncheckedAccount<'info>,
+
+  #[account(
         mut,
         constraint = admin.key() == treasury_pool.admin @ ErrorCode::Unauthorized
     )]
-    pub admin: Signer<'info>,
-    
-    /// CHECK: Destination wallet for withdrawal
-    #[account(mut)]
-    pub destination: UncheckedAccount<'info>,
-    
-    pub system_program: Program<'info, System>,
+  pub admin: Signer<'info>,
+
+  /// CHECK: Destination wallet for withdrawal
+  #[account(mut)]
+  pub destination: UncheckedAccount<'info>,
+
+  pub system_program: Program<'info, System>,
 }
 
 /// Admin withdraw from Platform Pool
@@ -43,56 +42,51 @@ pub struct AdminWithdraw<'info> {
 /// 2. Check Platform Pool has enough lamports
 /// 3. Transfer from Platform Pool PDA -> destination (via lamport mutation or CPI)
 /// 4. Update platform_pool_balance in state
-pub fn admin_withdraw(
-    ctx: Context<AdminWithdraw>,
-    amount: u64,
-    reason: String,
-) -> Result<()> {
-    let treasury_pool = &mut ctx.accounts.treasury_pool;
-    let platform_pool_info = ctx.accounts.platform_pool.to_account_info();
-    let destination_info = ctx.accounts.destination.to_account_info();
+pub fn admin_withdraw(ctx: Context<AdminWithdraw>, amount: u64, reason: String) -> Result<()> {
+  let treasury_pool = &mut ctx.accounts.treasury_pool;
+  let platform_pool_info = ctx.accounts.platform_pool.to_account_info();
+  let destination_info = ctx.accounts.destination.to_account_info();
 
-    require!(!treasury_pool.emergency_pause, ErrorCode::ProgramPaused);
-    require!(amount > 0, ErrorCode::InvalidAmount);
-    require!(
-        treasury_pool.platform_pool_balance >= amount,
-        ErrorCode::InsufficientTreasuryFunds
-    );
+  require!(!treasury_pool.emergency_pause, ErrorCode::ProgramPaused);
+  require!(amount > 0, ErrorCode::InvalidAmount);
+  require!(
+    treasury_pool.platform_pool_balance >= amount,
+    ErrorCode::InsufficientTreasuryFunds
+  );
 
-    // Check Platform Pool PDA has enough lamports
-    require!(
-        platform_pool_info.lamports() >= amount,
-        ErrorCode::InsufficientTreasuryFunds
-    );
+  // Check Platform Pool PDA has enough lamports
+  require!(
+    platform_pool_info.lamports() >= amount,
+    ErrorCode::InsufficientTreasuryFunds
+  );
 
-    // Transfer from Platform Pool PDA -> destination
-    // Use lamport mutation for program-owned account
-    {
-        let mut platform_pool_lamports = platform_pool_info.try_borrow_mut_lamports()?;
-        let mut destination_lamports = destination_info.try_borrow_mut_lamports()?;
+  // Transfer from Platform Pool PDA -> destination
+  // Use lamport mutation for program-owned account
+  {
+    let mut platform_pool_lamports = platform_pool_info.try_borrow_mut_lamports()?;
+    let mut destination_lamports = destination_info.try_borrow_mut_lamports()?;
 
-        **platform_pool_lamports = (**platform_pool_lamports)
-            .checked_sub(amount)
-            .ok_or(ErrorCode::CalculationOverflow)?;
-        **destination_lamports = (**destination_lamports)
-            .checked_add(amount)
-            .ok_or(ErrorCode::CalculationOverflow)?;
-    }
+    **platform_pool_lamports = (**platform_pool_lamports)
+      .checked_sub(amount)
+      .ok_or(ErrorCode::CalculationOverflow)?;
+    **destination_lamports = (**destination_lamports)
+      .checked_add(amount)
+      .ok_or(ErrorCode::CalculationOverflow)?;
+  }
 
-    // Update Platform Pool balance in state
-    treasury_pool.platform_pool_balance = treasury_pool
-        .platform_pool_balance
-        .checked_sub(amount)
-        .ok_or(ErrorCode::CalculationOverflow)?;
+  // Update Platform Pool balance in state
+  treasury_pool.platform_pool_balance = treasury_pool
+    .platform_pool_balance
+    .checked_sub(amount)
+    .ok_or(ErrorCode::CalculationOverflow)?;
 
-    emit!(AdminWithdrew {
-        admin: ctx.accounts.admin.key(),
-        amount,
-        destination: destination_info.key(),
-        reason,
-        withdrawn_at: Clock::get()?.unix_timestamp,
-    });
+  emit!(AdminWithdrew {
+    admin: ctx.accounts.admin.key(),
+    amount,
+    destination: destination_info.key(),
+    reason,
+    withdrawn_at: Clock::get()?.unix_timestamp,
+  });
 
-    Ok(())
+  Ok(())
 }
-
