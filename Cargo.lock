@@ -517,6 +517,7 @@ name = "d2d-program-sol"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "cfg-if",
 ]
 
 [[package]]

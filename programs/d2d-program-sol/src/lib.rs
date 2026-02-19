@@ -4,12 +4,15 @@ pub mod errors;
 pub mod events;
 pub mod instructions;
 pub mod states;
+pub mod program_id;
 
 pub use events::*;
 use instructions::*;
 pub use states::*;
 
-declare_id!("HDxYgZcTu6snVtCEozCUkhwmmUngWEsYuNKJsvgpyL5k");
+use program_id::PROGRAM_ID;
+
+declare_id!(PROGRAM_ID);
 
 #[program]
 pub mod d2d_program_sol {
