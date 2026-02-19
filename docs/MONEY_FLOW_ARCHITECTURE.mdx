@@ -2,42 +2,42 @@
 
 ## Executive Summary
 
-D2D Protocol là một nền tảng DeFi trên Solana cho phép **Stakers (Backers)** stake SOL để nhận rewards, trong khi protocol sử dụng SOL đó để **fund deployments** cho developers. Document này mô tả chi tiết luồng tiền trong hệ thống.
+D2D Protocol is a DeFi platform on Solana that allows **Stakers (Backers)** to stake SOL to earn rewards, while the protocol uses that SOL to **fund deployments** for developers. This document describes in detail the money flow within the system.
 
 ---
 
-## 1. Các Account Balance Chính
+## 1. Main Account Balances
 
-### 1.1 TreasuryPool - Các trường balance quan trọng
+### 1.1 TreasuryPool - Important Balance Fields
 
 ```rust
-// === BALANCE CHÍNH ===
-pub liquid_balance: u64;           // SOL có thể dùng cho deployments & withdrawals
-pub total_deposited: u64;          // Tổng SOL được stake bởi tất cả stakers
-pub reward_pool_balance: u64;      // Pool rewards để trả cho stakers
-pub platform_pool_balance: u64;    // Pool phí platform cho admin
+// === MAIN BALANCE ===
+pub liquid_balance: u64;           // SOL available for deployments & withdrawals
+pub total_deposited: u64;          // Total SOL staked by all stakers
+pub reward_pool_balance: u64;      // Reward pool to pay stakers
+pub platform_pool_balance: u64;    // Platform fee pool for admin
 
 // === DEBT TRACKING ===
-pub total_borrowed: u64;           // Tổng SOL đang được vay cho deployments
-pub total_recovered: u64;          // Tổng SOL đã recover từ rent
-pub total_debt_repaid: u64;        // Tổng nợ đã trả
+pub total_borrowed: u64;           // Total SOL currently borrowed for deployments
+pub total_recovered: u64;          // Total SOL recovered from rent
+pub total_debt_repaid: u64;        // Total debt repaid
 
 // === REWARD TRACKING ===
-pub reward_per_share: u128;        // Accumulator cho reward distribution
-pub pending_undistributed_rewards: u64;  // Rewards chờ phân phối
-pub total_stake_duration_weight: u128;   // Tổng weight theo thời gian stake
+pub reward_per_share: u128;        // Accumulator for reward distribution
+pub pending_undistributed_rewards: u64;  // Rewards waiting to be distributed
+pub total_stake_duration_weight: u128;   // Total weight by staking duration
 ```
 
-### 1.2 Mối quan hệ giữa các balance
+### 1.2 Relationship Between Balances
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │              TREASURY PDA (Physical SOL Balance)                  │
 ├──────────────────────────────────────────────────────────────────┤
-│  liquid_balance          │ Cho deployments + withdrawals         │
-│  + reward_pool_balance   │ Cho staker rewards                    │
-│  + platform_pool_balance │ Cho admin operations                  │
-│  + pending_undistributed │ Rewards chờ phân phối                 │
+│  liquid_balance          │ For deployments + withdrawals         │
+│  + reward_pool_balance   │ For staker rewards                    │
+│  + platform_pool_balance │ For admin operations                  │
+│  + pending_undistributed │ Rewards waiting to be distributed     │
 │  ≈ Total Lamports        │                                       │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -65,35 +65,29 @@ pub total_stake_duration_weight: u128;   // Tổng weight theo thời gian stake
 ### 2.2 State Changes
 
 ```typescript
-// Khi staker deposit amount SOL:
-
-// 1. Transfer SOL vào Treasury PDA
 treasury_pda.lamports += amount;
-
-// 2. Update balances
 treasury_pool.total_deposited += amount;
 treasury_pool.liquid_balance += amount;
 
-// 3. Fee calculation (nếu có fee trên deposits)
+// Fee calculation (if applicable)
 reward_fee = (amount * 100) / 10000;     // 1%
 platform_fee = (amount * 10) / 10000;    // 0.1%
 
-// 4. Update reward tracking
 lender_stake.deposited_amount += amount;
 lender_stake.reward_debt = deposited_amount * reward_per_share;
 ```
 
 ### 2.3 First Depositor Protection
 
-Để ngăn chặn **first-depositor arbitrage** (người đầu tiên claim hết rewards tích lũy):
+To prevent **first-depositor arbitrage** (first person claiming all accumulated rewards):
 
 ```typescript
 if (total_deposited_before == 0 && reward_pool_balance > 0) {
-    // KHÔNG cộng vào reward_per_share ngay
-    // Di chuyển vào pending để phân phối dần
+    // DO NOT add to reward_per_share immediately
+    // Move to pending for gradual distribution
     pending_undistributed_rewards += reward_pool_balance;
 
-    // Emit event để tracking
+    // Emit event for tracking
     emit!(RewardsMovedToPending { amount, reason: "first_depositor_protection" });
 }
 ```
@@ -101,17 +95,13 @@ if (total_deposited_before == 0 && reward_pool_balance > 0) {
 ### 2.4 Duration Tracking
 
 ```typescript
-// Với staker đã có deposit trước đó:
 if (!is_new_deposit) {
-    // Tính weight = amount * thời gian đã stake
     duration = current_time - lender_stake.last_action_at;
     weight_delta = deposited_amount * duration;
-
     lender_stake.stake_duration_weight += weight_delta;
     treasury_pool.total_stake_duration_weight += weight_delta;
 }
 
-// Update timestamp
 lender_stake.last_action_at = current_time;
 ```
 
@@ -121,56 +111,27 @@ lender_stake.last_action_at = current_time;
 
 ### 3.1 Reward Per Share Accumulator
 
-D2D sử dụng mô hình **Reward Per Share** giống Jito/Solayer:
+D2D uses the **Reward Per Share** model similar to Jito/Solayer:
 
 ```
 PRECISION = 1,000,000,000,000 (10^12)
 
-// Khi có rewards mới (từ fees):
+// When there are new rewards (from fees):
 delta = (reward_amount * PRECISION) / total_deposited
 reward_per_share += delta
 
-// Claimable rewards cho một staker:
+// Claimable rewards for a staker:
 accumulated = deposited_amount * reward_per_share
 claimable = (accumulated - reward_debt) / PRECISION
 ```
 
-### 3.2 Ví dụ minh họa
+### 3.2 Duration-Weighted Bonus
 
-```
-Scenario:
-- Total Deposited: 1,000 SOL
-- Staker A: 100 SOL (10%)
-- Staker B: 900 SOL (90%)
-- New reward: 10 SOL
-
-Calculation:
-delta = (10 * 10^12) / 1000 = 10^10
-reward_per_share += 10^10
-
-Staker A claimable:
-= (100 * 10^10 - 0) / 10^12
-= 10^12 / 10^12
-= 1 SOL (10% of 10 SOL) ✓
-
-Staker B claimable:
-= (900 * 10^10 - 0) / 10^12
-= 9 * 10^12 / 10^12
-= 9 SOL (90% of 10 SOL) ✓
-```
-
-### 3.3 Duration-Weighted Bonus
-
-Stakers stake lâu hơn được thưởng thêm từ `pending_undistributed_rewards`:
+Stakers who stake longer receive additional rewards from `pending_undistributed_rewards`:
 
 ```typescript
-// Mỗi staker có weight theo thời gian:
 stake_duration_weight = deposited_amount * (current_time - last_action_at)
-
-// Treasury tracking tổng weight:
 total_stake_duration_weight = Σ(all stakers' weights)
-
-// Duration bonus khi claim:
 duration_bonus = pending_undistributed_rewards * (staker_weight / total_weight)
 ```
 
@@ -203,29 +164,20 @@ duration_bonus = pending_undistributed_rewards * (staker_weight / total_weight)
 ### 4.2 Claim Process
 
 ```typescript
-// 1. Update duration weight trước
 weight_delta = lender_stake.update_duration_weight(current_time);
-
-// 2. Calculate base claimable
 base_claimable = calculate_claimable_rewards(deposited_amount, reward_debt);
-
-// 3. Calculate duration bonus
 duration_bonus = pending_undistributed_rewards * staker_weight / total_weight;
-
-// 4. Total claimable
 total_claimable = base_claimable + duration_bonus;
 
-// 5. State updates
 lender_stake.claimed_total += total_claimable;
 lender_stake.reward_debt = deposited_amount * reward_per_share;
-lender_stake.stake_duration_weight = 0;  // Reset sau claim
+lender_stake.stake_duration_weight = 0;  // Reset after claim
 lender_stake.pending_rewards = 0;
 
 treasury_pool.reward_pool_balance -= base_claimable;
 treasury_pool.pending_undistributed_rewards -= duration_bonus;
 treasury_pool.total_claimed_rewards += base_claimable;
 
-// 6. Transfer SOL
 reward_pool_pda → lender_wallet (total_claimable)
 ```
 
@@ -235,7 +187,7 @@ reward_pool_pda → lender_wallet (total_claimable)
 
 ### 5.1 Immediate Withdrawal (unstake_sol)
 
-Khi `liquid_balance >= withdrawal_amount`:
+When `liquid_balance >= withdrawal_amount`:
 
 ```
 ┌─────────────┐     SOL Transfer      ┌─────────────────┐
@@ -245,25 +197,21 @@ Khi `liquid_balance >= withdrawal_amount`:
 ```
 
 ```typescript
-// Validations
 require!(liquid_balance >= amount);
 require!(!lender_stake.has_queued_withdrawal());
 
-// Update duration weight trước khi withdraw
 weight_delta = lender_stake.update_duration_weight(current_time);
 
-// State updates
 lender_stake.deposited_amount -= amount;
 treasury_pool.total_deposited -= amount;
 treasury_pool.liquid_balance -= amount;
 
-// Transfer
 treasury_pda → lender_wallet (amount)
 ```
 
 ### 5.2 Queued Withdrawal
 
-Khi `liquid_balance < withdrawal_amount` (liquidity bị locked trong deployments):
+When `liquid_balance < withdrawal_amount` (liquidity is locked in deployments):
 
 ```
 ┌─────────────┐                       ┌─────────────────┐
@@ -271,17 +219,16 @@ Khi `liquid_balance < withdrawal_amount` (liquidity bị locked trong deployment
 │   Wallet    │                       │  Queue          │
 └─────────────┘                       └─────────────────┘
                                               │
-                                      Chờ rent recovery
+                                      Wait for rent recovery
                                               │
                                               ▼
                                       ┌───────────────┐
-                                      │  Process khi  │
-                                      │  có liquidity │
+                                      │  Process when │
+                                      │  liquidity    │
                                       └───────────────┘
 ```
 
 ```typescript
-// queue_withdrawal instruction
 queue_entry = WithdrawalQueueEntry {
     position: withdrawal_queue_tail,
     staker: requester,
@@ -290,29 +237,26 @@ queue_entry = WithdrawalQueueEntry {
     processed: false,
 };
 
-// Update states
 lender_stake.queued_withdrawal = amount;
 lender_stake.queue_position = position;
 treasury_pool.withdrawal_queue_tail += 1;
 treasury_pool.queued_withdrawal_amount += amount;
 
-// LƯU Ý: amount CHƯA bị trừ khỏi total_deposited
-// Staker vẫn nhận rewards cho đến khi withdrawal được process
+// NOTE: amount is NOT deducted from total_deposited until processed
+// Staker continues receiving rewards
 ```
 
 ### 5.3 Cancel Queued Withdrawal
 
-Staker có thể cancel withdrawal đang queue:
+Staker can cancel queued withdrawal:
 
 ```typescript
-// cancel_queued_withdrawal instruction
 require!(lender_stake.has_queued_withdrawal());
 
-// Reset states
 treasury_pool.queued_withdrawal_amount -= amount;
 lender_stake.queued_withdrawal = 0;
 lender_stake.queue_position = 0;
-queue_entry.processed = true;  // Mark as cancelled
+queue_entry.processed = true;
 ```
 
 ---
@@ -321,7 +265,7 @@ queue_entry.processed = true;  // Mark as cancelled
 
 ### 6.1 Subscription Payment
 
-Developers trả phí để maintain program deployments:
+Developers pay fees to maintain program deployments:
 
 ```
 ┌─────────────┐     SOL Transfer      ┌─────────────────┐
@@ -341,14 +285,12 @@ Developers trả phí để maintain program deployments:
 ### 6.2 Fee Structure
 
 ```typescript
-// Fee types:
 1. Service Fee (one-time): deploy_request.service_fee
 2. Monthly Fee: deploy_request.monthly_fee * months
 3. Monthly Borrow Fee (1%): borrowed_amount * 100 / 10000
 
-// Phân phối fees:
-subscription_fees → reward_pool_balance  // Cho stakers
-platform_fees → platform_pool_balance    // Cho admin
+subscription_fees → reward_pool_balance  // For stakers
+platform_fees → platform_pool_balance    // For admin
 ```
 
 ---
@@ -357,7 +299,7 @@ platform_fees → platform_pool_balance    // Cho admin
 
 ### 7.1 Fund Temporary Wallet (Borrowing)
 
-Khi admin fund deployment cho developer:
+When admin funds deployment for developer:
 
 ```
 ┌─────────────────┐    lamport mutation   ┌───────────────────┐
@@ -367,52 +309,34 @@ Khi admin fund deployment cho developer:
 ```
 
 ```typescript
-// Validations
 require!(liquid_balance >= deployment_cost);
-require!(check_utilization_limit(deployment_cost));  // 80% max
+require!(check_utilization_limit(deployment_cost));
 
-// State updates - Treasury
 treasury_pool.liquid_balance -= deployment_cost;
 treasury_pool.total_borrowed += deployment_cost;
 treasury_pool.active_deployment_count += 1;
 
-// State updates - DeployRequest
 deploy_request.borrowed_amount = deployment_cost;
 deploy_request.ephemeral_key = temporary_wallet;
-deploy_request.expected_rent_recovery = deployment_cost * 80%;  // ~80%
+deploy_request.expected_rent_recovery = deployment_cost * 80%;
 ```
 
 ### 7.2 Pool Utilization Limit
 
-Bảo vệ stakers bằng cách giới hạn 80% utilization:
+Protect stakers by limiting 80% utilization:
 
 ```typescript
 MAX_UTILIZATION_BPS = 8000;  // 80%
 
 check_utilization_limit(deployment_amount):
-    // Sau deployment, phải còn ít nhất 20% liquid
     remaining = liquid_balance - deployment_amount;
     min_reserve = total_deposited * 20 / 100;
     return remaining >= min_reserve;
 ```
 
-**Visualization:**
-
-```
-┌────────────────────────────────────────────────────────────┐
-│                     TOTAL_DEPOSITED                         │
-├────────────────────────────────────┬───────────────────────┤
-│      BORROWED (max 80%)            │  RESERVE (min 20%)    │
-│      For deployments               │  For withdrawals      │
-│                                    │                       │
-│  ████████████████████████████████  │  ░░░░░░░░░░░░░░░░░░  │
-│                                    │                       │
-└────────────────────────────────────┴───────────────────────┘
-```
-
 ### 7.3 Rent Recovery (Debt Repayment)
 
-Khi program expires và bị close:
+When program expires and is closed:
 
 ```
 ┌───────────────────┐   close_any()    ┌─────────────────┐
@@ -429,29 +353,21 @@ Khi program expires và bị close:
 ```
 
 ```typescript
-// reclaim_program_rent instruction
 recovered = program_data.lamports;
 remaining_debt = borrowed_amount - repaid_amount;
-
-// Split recovered funds
 debt_repayment = min(recovered, remaining_debt);
 excess_to_rewards = recovered - debt_repayment;
 
-// Per-deployment tracking
 deploy_request.repaid_amount += debt_repayment;
 deploy_request.actual_rent_recovered = recovered;
 deploy_request.recovery_ratio_bps = (recovered / borrowed) * 10000;
 
-// Global tracking
 treasury_pool.total_recovered += recovered;
 treasury_pool.total_debt_repaid += debt_repayment;
 treasury_pool.total_borrowed -= debt_repayment;
 treasury_pool.active_deployment_count -= 1;
-
-// CRITICAL: Restore liquid balance
 treasury_pool.liquid_balance += debt_repayment;
 
-// Excess goes to stakers
 if (excess_to_rewards > 0) {
     credit_fee_to_pool(excess_to_rewards, 0);
 }
@@ -467,33 +383,18 @@ Admin/cron periodically calls `distribute_pending_rewards`:
 
 ```typescript
 distribute_pending_rewards(distribution_percentage_bps):
-    // e.g., 1000 bps = 10% mỗi lần
-
     amount_to_distribute = pending_undistributed_rewards * percentage / 10000;
-
-    // Update reward_per_share
     delta = (amount_to_distribute * PRECISION) / total_deposited;
     reward_per_share += delta;
-
-    // Reduce pending
     pending_undistributed_rewards -= amount_to_distribute;
-
     return amount_to_distribute;
 ```
-
-### 8.2 Recommended Schedule
-
-| Frequency | Percentage | Use Case |
-|-----------|------------|----------|
-| Daily | 1000 bps (10%) | Normal operation |
-| Weekly | 5000 bps (50%) | Slow release |
-| On-demand | 10000 bps (100%) | Full distribution |
 
 ---
 
 ## 9. Dynamic APY Calculation
 
-APY tăng khi utilization cao để attract thêm deposits:
+APY increases when utilization is high to attract more deposits:
 
 ```typescript
 // Constants
@@ -508,32 +409,13 @@ calculate_current_apy():
     if utilization >= 80%:
         multiplier = 3.0x  // Max
     else if utilization >= 60%:
-        // Linear từ 1.5x → 3x
+        // Linear from 1.5x → 3x
         multiplier = 1.5 + 1.5 * ((utilization - 60%) / 20%)
     else:
-        // Linear từ 1x → 1.5x
+        // Linear from 1x → 1.5x
         multiplier = 1.0 + 0.5 * (utilization / 60%)
 
     return base_apy * multiplier;
-```
-
-**APY Curve:**
-
-```
-APY
- ▲
-15%├────────────────────────────────────────────█
-   │                                        ████
-   │                                    ████
-10%├────────────────────────────────████
-   │                            ████
-   │                        ████
-7.5%├───────────────────████
-   │               █████
-   │          █████
- 5%├─────█████
-   └───────┬──────────┬──────────┬──────────┬───▶ Utilization
-          20%        40%        60%        80%
 ```
 
 ---
@@ -608,10 +490,10 @@ APY
 
 ### 11.2 Overflow Protection
 
-Tất cả arithmetic operations sử dụng `checked_*` methods:
+All arithmetic operations use `checked_*` methods:
 
 ```rust
-// Ví dụ
+// Example
 self.total_deposited = self.total_deposited
     .checked_add(amount)
     .ok_or(ErrorCode::CalculationOverflow)?;
