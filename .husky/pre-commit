@@ -4,5 +4,5 @@
 echo "🦀 format rust code...."
 cargo +nightly fmt
 
-# echo "📦 Add all changes"
-# git add .
+echo "📦 Add all changes"
+git add .

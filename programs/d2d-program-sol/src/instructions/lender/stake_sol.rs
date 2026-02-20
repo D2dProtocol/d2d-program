@@ -74,7 +74,11 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
   let current_time = Clock::get()?.unix_timestamp;
 
   if is_new_deposit {
-    lender_stake.init(ctx.accounts.lender.key(), ctx.bumps.lender_stake, current_time);
+    lender_stake.init(
+      ctx.accounts.lender.key(),
+      ctx.bumps.lender_stake,
+      current_time,
+    );
   } else {
     if !lender_stake.is_active {
       lender_stake.is_active = true;
