@@ -1,6 +1,10 @@
+use std::str::FromStr;
+
 use anchor_lang::prelude::*;
 
-use crate::{events::TreasuryInitialized, states::TreasuryPool};
+use crate::{
+  constant::admin_mod, errors::ErrorCode, events::TreasuryInitialized, states::TreasuryPool,
+};
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -33,7 +37,10 @@ pub struct Initialize<'info> {
   )]
   pub platform_pool: UncheckedAccount<'info>,
 
-  #[account(mut)]
+  #[account(
+    mut,
+    constraint = admin.key() == Pubkey::from_str(&admin_mod::ADMIN_SYSTEM_PUBKEY).unwrap() @ ErrorCode::InvalidAdminAccount
+  )]
   pub admin: Signer<'info>,
 
   /// CHECK: Dev wallet

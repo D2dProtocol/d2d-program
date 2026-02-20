@@ -2,6 +2,10 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum ErrorCode {
+  // Admin
+  #[msg("Invalid admin account")]
+  InvalidAdminAccount,
+
   #[msg("Program is currently paused")]
   ProgramPaused,
   #[msg("Insufficient deposit amount")]

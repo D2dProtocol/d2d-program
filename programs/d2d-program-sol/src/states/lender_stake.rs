@@ -203,4 +203,17 @@ impl BackerDeposit {
   pub fn get_effective_deposit(&self) -> u64 {
     self.deposited_amount.saturating_sub(self.queued_withdrawal)
   }
+
+  pub fn init(&mut self, backer: Pubkey, bump: u8, current_time: i64) {
+    self.backer = backer;
+    self.deposited_amount = 0;
+    self.reward_debt = 0;
+    self.pending_rewards = 0;
+    self.claimed_total = 0;
+    self.is_active = true;
+    self.bump = bump;
+
+    // Initialize duration tracking timestamps for new deposit
+    self.initialize_timestamps(current_time);
+  }
 }

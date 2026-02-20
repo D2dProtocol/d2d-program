@@ -8,21 +8,17 @@ use crate::{
 
 #[derive(Accounts)]
 pub struct StakeSol<'info> {
-  /// CHECK: Treasury Pool - will be migrated if needed
+  /// CHECK: Treasury Pool PDA - holds both data and SOL
   #[account(mut)]
   pub treasury_pool: UncheckedAccount<'info>,
 
-  /// CHECK: Treasury Pool PDA
-  #[account(mut)]
-  pub treasury_pda: UncheckedAccount<'info>,
-
   #[account(
-        init_if_needed,
-        payer = lender,
-        space = 8 + BackerDeposit::INIT_SPACE,
-        seeds = [BackerDeposit::PREFIX_SEED, lender.key().as_ref()],
-        bump
-    )]
+    init_if_needed,
+    payer = lender,
+    space = 8 + BackerDeposit::INIT_SPACE,
+    seeds = [BackerDeposit::PREFIX_SEED, lender.key().as_ref()],
+    bump
+  )]
   pub lender_stake: Account<'info, BackerDeposit>,
 
   #[account(mut)]
@@ -36,10 +32,6 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
     Pubkey::find_program_address(&[TreasuryPool::PREFIX_SEED], ctx.program_id);
   require!(
     ctx.accounts.treasury_pool.key() == expected_treasury_pool,
-    ErrorCode::InvalidAccountOwner
-  );
-  require!(
-    ctx.accounts.treasury_pda.key() == expected_treasury_pool,
     ErrorCode::InvalidAccountOwner
   );
 
@@ -56,13 +48,12 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
 
   let lender_stake = &mut ctx.accounts.lender_stake;
 
-  require!(!treasury_pool.emergency_pause, ErrorCode::ProgramPaused);
+  treasury_pool.is_emergency_stop()?;
   require!(deposit_amount > 0, ErrorCode::InvalidAmount);
 
-  let lender_lamports = ctx.accounts.lender.lamports();
-  let is_new_account = lender_stake.backer == Pubkey::default();
+  let is_new_deposit = lender_stake.backer == Pubkey::default();
 
-  let rent_exemption_needed = if is_new_account {
+  let rent_exemption_needed = if is_new_deposit {
     Rent::get()?.minimum_balance(8 + BackerDeposit::INIT_SPACE)
   } else {
     0
@@ -76,24 +67,14 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
     .ok_or(ErrorCode::CalculationOverflow)?;
 
   require!(
-    lender_lamports >= total_required,
+    ctx.accounts.lender.lamports() >= total_required,
     ErrorCode::InsufficientDeposit
   );
 
-  let is_new_deposit = lender_stake.backer == Pubkey::default();
   let current_time = Clock::get()?.unix_timestamp;
 
   if is_new_deposit {
-    lender_stake.backer = ctx.accounts.lender.key();
-    lender_stake.deposited_amount = 0;
-    lender_stake.reward_debt = 0;
-    lender_stake.pending_rewards = 0;
-    lender_stake.claimed_total = 0;
-    lender_stake.is_active = true;
-    lender_stake.bump = ctx.bumps.lender_stake;
-
-    // Initialize duration tracking timestamps for new deposit
-    lender_stake.initialize_timestamps(current_time);
+    lender_stake.init(ctx.accounts.lender.key(), ctx.bumps.lender_stake, current_time);
   } else {
     if !lender_stake.is_active {
       lender_stake.is_active = true;
@@ -148,7 +129,7 @@ pub fn stake_sol(ctx: Context<StakeSol>, deposit_amount: u64, _lock_period: i64)
     ctx.accounts.system_program.to_account_info(),
     system_program::Transfer {
       from: ctx.accounts.lender.to_account_info(),
-      to: ctx.accounts.treasury_pda.to_account_info(),
+      to: ctx.accounts.treasury_pool.to_account_info(),
     },
   );
   system_program::transfer(deposit_cpi, deposit_amount)?;

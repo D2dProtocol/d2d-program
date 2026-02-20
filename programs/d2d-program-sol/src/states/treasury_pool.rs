@@ -585,4 +585,10 @@ impl TreasuryPool {
 
     Ok(bonus)
   }
+
+  // === UTILS CHECKING ===
+  pub fn is_emergency_stop(&self) -> Result<()> {
+    require!(!self.emergency_pause, ErrorCode::ProgramPaused);
+    Ok(())
+  }
 }
